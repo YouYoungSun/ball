@@ -353,3 +353,67 @@ test('slide history checkpoints preserve launch grace and late braking, and reje
     } finally { a.free(); b?.free(); }
   }
 });
+
+test('power applies 1.25 times the legal input impulse without changing normal physics', () => {
+  const seeds = [{ id: 0, side: 0 as const, kind: 'soldier' as const, x: 2, y: 2 }, { id: 1, side: 1 as const, x: 7, y: 8 }];
+  const normal = new Game('power-ratio', seeds), power = new Game('power-ratio', seeds);
+  try {
+    const input = maxImpulseFor('soldier');
+    assert.ok(normal.shoot(makeShot(normal.state(), 0, input, 0, 'normal')).accepted);
+    assert.ok(power.shoot(makeShot(power.state(), 0, input, 0, 'power', 'power')).accepted);
+    assert.ok(Math.abs(normal.state().stones[0].vx - 12) < .001);
+    assert.ok(Math.abs(power.state().stones[0].vx / normal.state().stones[0].vx - 1.25) < .000001);
+    assert.deepEqual(normal.state().skillUsed, [false, false]);
+    assert.deepEqual(power.state().skillUsed, [true, false]);
+    assert.deepEqual(normal.drainEvents()[0], { kind: 'shot', tick: 0, stoneId: 0, power: 1, directionX: 1, directionY: 0 });
+    assert.deepEqual(power.drainEvents()[0], { kind: 'shot', tick: 0, stoneId: 0, power: 1, skill: 'power', directionX: 1, directionY: 0 });
+    const returned = power.state(); returned.skillUsed[0] = false;
+    const checkpoint = power.snapshot(); checkpoint.skillUsed[0] = false;
+    assert.deepEqual(power.state().skillUsed, [true, false], 'state and snapshots cannot mutate the live allowance');
+  } finally { normal.free(); power.free(); }
+});
+
+test('power is independently available once per player and rejected shots never consume it', () => {
+  const g = new Game('power-allowance');
+  try {
+    const shot = makeShot(g.state(), 1, 250, 0, 'first', 'power');
+    for (const invalid of [{ ...shot, impulseX: maxImpulseFor('horse') + 1 }, { ...shot, stoneId: 16 },
+      { ...shot, turn: 0 }, { ...shot, impulseX: 0 }, { ...shot, skill: 'unknown' }]) {
+      assert.equal(g.shoot(invalid as typeof shot).accepted, false);
+      assert.deepEqual(g.state().skillUsed, [false, false]);
+    }
+    assert.ok(g.shoot(shot).accepted); assert.equal(g.shoot(shot).accepted, false); settle(g);
+    assert.deepEqual(g.state().skillUsed, [true, false]);
+    const opponent = makeShot(g.state(), 17, -250, 0, 'opponent', 'power');
+    assert.ok(g.shoot(opponent).accepted); settle(g);
+    assert.deepEqual(g.state().skillUsed, [true, true]);
+    assert.equal(g.shoot(makeShot(g.state(), 1, 250, 0, 'second-power', 'power')).accepted, false);
+    assert.ok(g.shoot(makeShot(g.state(), 1, 250, 0, 'normal-after-power')).accepted); settle(g);
+    assert.equal(g.shoot(makeShot(g.state(), 17, -250, 0, 'second-opponent-power', 'power')).accepted, false);
+  } finally { g.free(); }
+});
+
+test('power commands replay and restore the same physics, flags, and remaining allowance', () => {
+  const g = new Game('power-resume'), replay = new Game('power-resume'); let restored: Game | undefined;
+  try {
+    assert.ok(g.shoot(makeShot(g.state(), 1, 250, 0, 'power-open', 'power')).accepted);
+    g.stepFixed(); restored = Game.restore(g.snapshot());
+    assert.deepEqual(restored.state(), g.state()); assert.equal(hash(restored), hash(g));
+    settle(g); settle(restored);
+    assert.ok(g.shoot(makeShot(g.state(), 17, -250, 0, 'normal-reply')).accepted); settle(g);
+    for (const command of g.shotLog()) { assert.ok(replay.shoot(command).accepted); settle(replay); }
+    assert.deepEqual(replay.state(), g.state()); assert.equal(hash(replay), hash(g));
+    assert.deepEqual(g.shotLog()[0].skill, 'power');
+    const checkpoint = g.snapshot();
+    assert.throws(() => Game.restore({ ...checkpoint, rulesVersion: 'janggi-alkkagi-4' }));
+    for (const flags of [undefined, [false], [true, false, false], [1, false], [false, false]]) {
+      assert.throws(() => Game.restore({ ...checkpoint, skillUsed: flags } as typeof checkpoint));
+    }
+    assert.throws(() => Game.restore({ ...checkpoint, commands: checkpoint.commands.map(c => ({ ...c, skill: 'unknown' })) } as unknown as typeof checkpoint));
+    const settled = Game.restore(checkpoint);
+    try {
+      assert.equal(settled.shoot(makeShot(settled.state(), 1, 250, 0, 'restored-reuse', 'power')).accepted, false);
+      assert.ok(settled.shoot(makeShot(settled.state(), 1, 250, 0, 'restored-normal')).accepted);
+    } finally { settled.free(); }
+  } finally { g.free(); replay.free(); restored?.free(); }
+});

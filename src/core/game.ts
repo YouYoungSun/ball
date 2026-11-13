@@ -24,6 +24,7 @@ export class Game {
   private winner: Side | 'draw' | null = null;
   private shotTicks = 0;
   private quietTicks = 0;
+  private skillUsed: [boolean, boolean] = [false, false];
 
   constructor(matchId = 'local-match', seeds: readonly StoneSeed[] = INITIAL_STONES) {
     this.matchId = matchId;
@@ -46,7 +47,7 @@ export class Game {
 
   state(): MatchState {
     return { matchId: this.matchId, tick: this.tick, turn: this.turn, side: this.side,
-      phase: this.phase, winner: this.winner,
+      phase: this.phase, winner: this.winner, skillUsed: [...this.skillUsed],
       stones: this.stones.map(s => {
         const b = this.world.getRigidBody(s.bodyHandle), p = b.translation(), v = b.linvel();
         return { id: s.id, side: s.side, kind: s.kind, alive: s.alive, x: p.x, y: p.y, vx: v.x, vy: v.y };
@@ -61,18 +62,25 @@ export class Game {
     if (this.seenShots.has(c.shotId)) return reject('이미 처리한 발사입니다.');
     if (this.phase !== 'aiming') return reject('지금은 발사할 수 없습니다.');
     if (c.turn !== this.turn || c.side !== this.side) return reject('현재 차례가 아닙니다.');
+    if (c.skill !== undefined && c.skill !== 'power') return reject('잘못된 스킬입니다.');
+    if (c.skill === 'power' && this.skillUsed[c.side]) return reject('강타는 경기당 한 번만 사용할 수 있습니다.');
     const stone = this.stones.find(s => s.id === c.stoneId && s.alive && s.side === c.side);
     if (!stone) return reject('내 돌을 선택하세요.');
     if (!Number.isSafeInteger(c.impulseX) || !Number.isSafeInteger(c.impulseY)) return reject('잘못된 발사 힘입니다.');
     const sizeSquared = c.impulseX ** 2 + c.impulseY ** 2;
     if (sizeSquared < RULES.minImpulse ** 2 || sizeSquared > maxImpulseFor(stone.kind) ** 2) return reject('발사 힘이 허용 범위를 벗어났습니다.');
+    if (c.skill === 'power') this.skillUsed[c.side] = true;
     this.seenShots.add(c.shotId);
     this.commands.push({ ...c });
     const b = this.world.getRigidBody(stone.bodyHandle);
-    b.applyImpulse({ x: c.impulseX / RULES.impulseScale, y: c.impulseY / RULES.impulseScale }, true);
+    const multiplier = c.skill === 'power' ? RULES.powerMultiplier : 1;
+    b.applyImpulse({ x: c.impulseX * multiplier / RULES.impulseScale, y: c.impulseY * multiplier / RULES.impulseScale }, true);
     for (const s of this.stones) { s.slideTicks = 0; s.slideDistance = 0; }
     this.phase = 'moving'; this.quietTicks = 0; this.shotTicks = 0;
-    this.events.push({ kind: 'shot', tick: this.tick, stoneId: stone.id });
+    const size = Math.sqrt(sizeSquared);
+    this.events.push({ kind: 'shot', tick: this.tick, stoneId: stone.id,
+      power: size / maxImpulseFor(stone.kind), ...(c.skill ? { skill: c.skill } : {}),
+      directionX: c.impulseX / size, directionY: c.impulseY / size });
     return { accepted: true };
   }
 
@@ -164,7 +172,7 @@ export class Game {
   shotLog(): ShotCommand[] { return this.commands.map(c => ({ ...c })); }
   snapshot(): MatchSnapshot {
     return { format: 1, rulesVersion: RULES.version, engine: RULES.engine, matchId: this.matchId,
-      tick: this.tick, turn: this.turn, side: this.side, phase: this.phase, winner: this.winner,
+      tick: this.tick, turn: this.turn, side: this.side, phase: this.phase, winner: this.winner, skillUsed: [...this.skillUsed],
       shotTicks: this.shotTicks, quietTicks: this.quietTicks, seenShots: [...this.seenShots], commands: this.shotLog(),
       stones: this.stones.map(s => ({ ...s })), physics: this.world.takeSnapshot() };
   }
@@ -174,6 +182,15 @@ export class Game {
       !Array.isArray(snapshot.stones) || snapshot.stones.length > 32 ||
       !Array.isArray(snapshot.seenShots) || snapshot.seenShots.length > RULES.maxTurns ||
       !Array.isArray(snapshot.commands) || snapshot.commands.length > RULES.maxTurns) throw new Error('잘못된 스냅샷 형식입니다.');
+    if (!Array.isArray(snapshot.skillUsed) || snapshot.skillUsed.length !== 2 ||
+      snapshot.skillUsed.some(used => typeof used !== 'boolean')) throw new Error('잘못된 스킬 이력입니다.');
+    const skillCounts = [0, 0];
+    for (const command of snapshot.commands) {
+      if (!command || (command.side !== 0 && command.side !== 1) ||
+        (command.skill !== undefined && command.skill !== 'power')) throw new Error('잘못된 발사 이력입니다.');
+      if (command.skill === 'power') skillCounts[command.side]++;
+    }
+    if (skillCounts.some((count, side) => count > 1 || snapshot.skillUsed[side] !== (count === 1))) throw new Error('일치하지 않는 스킬 이력입니다.');
     if (snapshot.stones.some(s => !Number.isSafeInteger(s.slideTicks) || s.slideTicks < 0 ||
       s.slideTicks > RULES.maxShotTicks || !Number.isFinite(s.slideDistance) ||
       s.slideDistance < 0 || s.slideDistance > 1000)) throw new Error('잘못된 이동 이력입니다.');
@@ -188,6 +205,7 @@ export class Game {
       if (h && c.shapeType() === RAPIER.ShapeType.Cuboid) g.colliderToHinge.set(c.handle, h.id);
     });
     g.tick = snapshot.tick; g.turn = snapshot.turn; g.side = snapshot.side; g.phase = snapshot.phase;
+    g.skillUsed = [...snapshot.skillUsed];
     g.winner = snapshot.winner; g.shotTicks = snapshot.shotTicks; g.quietTicks = snapshot.quietTicks;
     g.seenShots = new Set(snapshot.seenShots); g.commands = snapshot.commands.map(c => ({ ...c })); g.stones = snapshot.stones.map(s => ({ ...s }));
     for (const s of g.stones) {
@@ -208,7 +226,7 @@ export class Game {
   }
 }
 
-export function makeShot(state: MatchState, stoneId: number, x: number, y: number, shotId: string): ShotCommand {
+export function makeShot(state: MatchState, stoneId: number, x: number, y: number, shotId: string, skill?: 'power'): ShotCommand {
   return { kind: 'shoot', matchId: state.matchId, rulesVersion: RULES.version,
-    turn: state.turn, side: state.side, shotId, stoneId, impulseX: Math.round(x), impulseY: Math.round(y) };
+    turn: state.turn, side: state.side, shotId, stoneId, impulseX: Math.round(x), impulseY: Math.round(y), ...(skill ? { skill } : {}) };
 }

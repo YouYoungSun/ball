@@ -3,12 +3,14 @@ import type { GameEvent, MatchState } from '../core/types.ts';
 
 type SoundName = 'flick' | 'hitSoft' | 'hitMedium' | 'hitHard' | 'hinge' | 'fall' | 'win';
 interface AudioManifest { version: 1; clips: Record<SoundName, string[]> }
-interface Voice { source: AudioBufferSourceNode; priority: number; started: number }
+interface Voice { source: AudioBufferSourceNode; priority: number; started: number; name: SoundName; strength: number }
 const SOUND_NAMES: SoundName[] = ['flick', 'hitSoft', 'hitMedium', 'hitHard', 'hinge', 'fall', 'win'];
 
 /** Authored WAV Foley, decoded ahead of impacts. Audio never changes game state. */
 export class AudioPlayer {
-  enabled = false;
+  private audible = false;
+  get enabled(): boolean { return this.audible; }
+  set enabled(value: boolean) { this.audible = value; if (!value) this.reset(); }
   private context?: AudioContext;
   private bus?: GainNode;
   private clips: Partial<Record<SoundName, AudioBuffer[]>> = {};
@@ -72,16 +74,21 @@ export class AudioPlayer {
       this.play(sample, e.strength, 1 + e.strength);
     } else if (e.kind === 'hinge-hit') this.play('hinge', e.strength, 2 + e.strength);
     else if (e.kind === 'removed') this.play('fall', .7, 3);
-    else if (e.kind === 'shot') this.play('flick', .4, .5);
-    else if (e.kind === 'match-ended') this.play('win', .5, 4);
+    else if (e.kind === 'shot') this.play('flick', e.power, .5 + e.power * .3);
+    else if (e.kind === 'match-ended') this.play('win', .5, 4, .48);
   }
 
-  private play(name: SoundName, strength: number, priority: number): void {
+  private play(name: SoundName, strength: number, priority: number, delay = 0): void {
     const ctx = this.context!, samples = this.clips[name];
     if (!samples?.length || !this.bus) return;
     const now = ctx.currentTime;
     const gap = name === 'fall' ? .075 : name === 'hinge' ? .045 : .035;
-    if (now - (this.lastSound.get(name) ?? -Infinity) < gap) return;
+    if (now - (this.lastSound.get(name) ?? -Infinity) < gap) {
+      // A strong contact must survive a soft contact earlier in the same frame.
+      const recent = [...this.voices].filter(v => v.name === name && now - v.started < gap);
+      if (!recent.length || recent.some(v => v.strength >= strength)) return;
+      for (const voice of recent) { voice.source.stop(); this.voices.delete(voice); }
+    }
     if (this.voices.size >= 7) {
       const least = [...this.voices].sort((a, b) => a.priority - b.priority || a.started - b.started)[0];
       if (least.priority > priority) return;
@@ -93,10 +100,16 @@ export class AudioPlayer {
     const mix: Record<SoundName, number> = { flick: .15, hitSoft: .36, hitMedium: .39, hitHard: .40, hinge: .31, fall: .38, win: .22 };
     gain.gain.value = mix[name] * (.28 + Math.max(0, Math.min(1, strength)) * .72);
     source.connect(gain).connect(this.bus);
-    const voice = { source, priority, started: now }; this.voices.add(voice);
+    const voice = { source, priority, started: now, name, strength }; this.voices.add(voice);
     source.onended = () => { this.voices.delete(voice); source.disconnect(); gain.disconnect(); };
-    this.lastSound.set(name, now); source.start();
+    this.lastSound.set(name, now); source.start(now + delay);
   }
 
-  suspend(): void { void this.context?.suspend(); }
+  /** Cancel current and scheduled sounds when leaving or restarting a match. */
+  reset(): void {
+    for (const voice of this.voices) voice.source.stop();
+    this.voices.clear(); this.lastSound.clear();
+  }
+
+  suspend(): void { this.reset(); void this.context?.suspend(); }
 }

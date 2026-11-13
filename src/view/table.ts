@@ -4,9 +4,10 @@ import type { GameEvent, MatchState, StoneState } from '../core/types.ts';
 export const TABLE = { x: 30, y: 30, w: 1040, h: 1040 / 9 * 10, width: 1100, height: 1220 };
 const SCALE = TABLE.w / RULES.width;
 const project = (x: number, y: number) => ({ x: TABLE.x + x * SCALE, y: TABLE.y + y * SCALE });
-interface Flash { x: number; y: number; age: number; strength: number; metal: boolean; nx: number; ny: number; mass: number }
+interface Flash { x: number; y: number; age: number; strength: number; metal: boolean; nx: number; ny: number; mass: number; powered: boolean }
 interface Falling { stone: StoneState; age: number }
 interface ShotTrail { age: number; x: number; y: number }
+interface PowerStroke { age: number; x: number; y: number; nx: number; ny: number; power: number }
 interface Kick { age: number; x: number; y: number }
 export interface Aim { stoneId: number; x: number; y: number }
 const random = (n: number) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
@@ -21,18 +22,27 @@ export class TableView {
   private falls: Falling[] = [];
   private trails = new Map<number, ShotTrail>();
   private kicks: Kick[] = [];
+  private powerStrokes: PowerStroke[] = [];
+  private poweredStone: number | null = null;
   private canvas: HTMLCanvasElement;
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas; this.ctx = canvas.getContext('2d')!;
     this.backdrop = document.createElement('canvas'); this.backdrop.width = TABLE.width; this.backdrop.height = TABLE.height;
     this.paintBoard(this.backdrop.getContext('2d')!);
   }
-  clear(): void { this.flashes = []; this.falls = []; this.trails.clear(); this.kicks = []; }
+  clear(): void { this.flashes = []; this.falls = []; this.trails.clear(); this.kicks = []; this.powerStrokes = []; this.poweredStone = null; }
   receive(events: GameEvent[], previous: MatchState): void {
+    const latestTick = Math.max(previous.tick, ...events.map(e => e.tick));
     for (const e of events) {
+      // Network batches preserve event age instead of replaying every mark as fresh.
+      const age = Math.max(0, (latestTick - e.tick) * RULES.dt);
       if (e.kind === 'shot') {
         const s = previous.stones.find(s => s.id === e.stoneId);
-        if (s) this.trails.set(s.id, { age: 0, x: s.x, y: s.y });
+        this.poweredStone = e.skill === 'power' ? e.stoneId : null;
+        if (s) {
+          this.trails.set(s.id, { age, x: s.x, y: s.y });
+          if (e.skill === 'power') this.powerStrokes.push({ age, ...project(s.x, s.y), nx: e.directionX, ny: e.directionY, power: e.power });
+        }
       }
       if (e.kind === 'hit' || e.kind === 'hinge-hit') {
         const p = project(e.x, e.y), metal = e.kind === 'hinge-hit';
@@ -45,15 +55,22 @@ export class TableView {
         if (a && (a.vx - (b?.vx ?? 0)) * nx + (a.vy - (b?.vy ?? 0)) * ny < 0) { nx *= -1; ny *= -1; }
         const mass = b && a ? Math.sqrt(pieceSpec(a.kind).mass * pieceSpec(b.kind).mass) : pieceSpec(a?.kind).mass;
         const strength = Math.max(0, Math.min(1, e.strength));
-        if (strength > .07) this.flashes.push({ ...p, age: 0, strength, metal, nx, ny, mass });
+        const powered = this.poweredStone !== null && (e.kind === 'hit' ? e.a === this.poweredStone || e.b === this.poweredStone : e.stoneId === this.poweredStone);
+        if (strength > .07) this.flashes.push({ ...p, age, strength, metal, nx, ny, mass, powered });
+        if (powered) this.poweredStone = null;
+        // Both fast participants can leave a short wake after an actual contact.
+        if (strength > .18) for (const stone of [a, b]) {
+          if (stone && !this.trails.has(stone.id)) this.trails.set(stone.id, { age, x: stone.x, y: stone.y });
+        }
         if (strength > .24) {
-          const amplitude = Math.min(3.2, Math.pow((strength - .24) / .76, 1.2) * (2.1 + mass * .55)) * (metal ? .8 : 1);
-          this.kicks.push({ age: 0, x: nx * amplitude, y: ny * amplitude });
+          const amplitude = Math.min(6.5, Math.pow((strength - .24) / .76, 1.2) * (3.8 + mass * 1.15) + (powered ? 1.1 : 0)) * (metal ? .8 : 1);
+          this.kicks.push({ age, x: nx * amplitude, y: ny * amplitude });
         }
       }
+      if (e.kind === 'turn-ended') this.poweredStone = null;
       if (e.kind === 'removed') {
         const stone = previous.stones.find(s => s.id === e.stoneId);
-        if (stone) this.falls.push({ stone: { ...stone, x: e.x, y: e.y, vx: e.vx, vy: e.vy }, age: 0 });
+        if (stone) this.falls.push({ stone: { ...stone, x: e.x, y: e.y, vx: e.vx, vy: e.vy }, age });
         this.trails.delete(e.stoneId);
       }
     }
@@ -62,12 +79,13 @@ export class TableView {
     const ctx = this.ctx;
     this.flashes.forEach(f => f.age += dt); this.falls.forEach(f => f.age += dt);
     this.flashes = this.flashes.filter(f => f.age < .075 + f.strength * .065); this.falls = this.falls.filter(f => f.age < .7);
+    this.powerStrokes.forEach(s => s.age += dt); this.powerStrokes = this.powerStrokes.filter(s => s.age < .19);
     this.kicks.forEach(k => k.age += dt); this.kicks = this.kicks.filter(k => k.age < .105);
     ctx.clearRect(0, 0, TABLE.width, TABLE.height); ctx.save();
     if (this.shaking && this.effects) {
       let x = 0, y = 0;
       for (const k of this.kicks) { const t = k.age / .105, recoil = Math.exp(-t * 5) * Math.cos(t * Math.PI * 1.5); x += k.x * recoil; y += k.y * recoil; }
-      const length = Math.hypot(x, y), limit = length > 3.2 ? 3.2 / length : 1;
+      const length = Math.hypot(x, y), limit = length > 6.5 ? 6.5 / length : 1;
       ctx.translate(x * limit, y * limit);
     }
     ctx.drawImage(this.backdrop, 0, 0);
@@ -75,6 +93,7 @@ export class TableView {
       const old = previous?.stones.find(o => o.id === s.id);
       return old?.alive ? { ...s, x: old.x + (s.x - old.x) * alpha, y: old.y + (s.y - old.y) * alpha } : s;
     });
+    if (this.effects) for (const stroke of this.powerStrokes) this.powerStroke(stroke);
     for (const s of stones) {
       const speed = Math.hypot(s.vx, s.vy), spec = pieceSpec(s.kind), trail = this.trails.get(s.id);
       if (!trail) continue;
@@ -137,6 +156,21 @@ export class TableView {
     const label = spec.label[s.side]; ctx.fillStyle = '#fff0c38c'; ctx.fillText(label, .6, 1); ctx.fillStyle = s.side ? '#a1372b' : '#234e72'; ctx.fillText(label, 0, 0);
     ctx.restore();
   }
+  private powerStroke(s: PowerStroke): void {
+    const ctx = this.ctx, t = s.age / .19;
+    ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.ny, s.nx));
+    ctx.globalAlpha = Math.pow(1 - t, 1.7);
+    // Three directional brush marks stay close to the launch stone.
+    const reach = 54 + s.power * 48, drift = t * 38;
+    for (const side of [-1, 0, 1]) {
+      ctx.strokeStyle = side === 0 ? '#33271ed9' : '#59402caa';
+      ctx.lineWidth = side === 0 ? 7 : 2.5; ctx.lineCap = 'butt';
+      ctx.beginPath(); ctx.moveTo(-reach + drift, side * 15); ctx.lineTo(32 + drift, side * 8); ctx.stroke();
+    }
+    ctx.strokeStyle = '#ffe0a0'; ctx.lineWidth = 2; ctx.beginPath();
+    ctx.moveTo(-reach * .7 + drift, -3); ctx.lineTo(40 + drift, -3); ctx.stroke();
+    ctx.restore();
+  }
   private flash(f: Flash): void {
     const ctx = this.ctx, p = f.age / (.075 + f.strength * .065);
     const weight = Math.min(1.35, .7 + f.mass * .23), span = (3 + f.strength * 12) * weight;
@@ -160,6 +194,12 @@ export class TableView {
         ctx.strokeStyle = '#624127'; ctx.lineWidth = 1.3; ctx.beginPath();
         ctx.moveTo(-4 - p * 5, -span * .45); ctx.lineTo(-4 - p * 5, span * .45); ctx.stroke();
       }
+    }
+    if (f.powered) {
+      ctx.strokeStyle = '#ffe2a0'; ctx.lineWidth = 3.2; ctx.globalAlpha *= .9;
+      ctx.beginPath(); ctx.moveTo(-22 - p * 12, -span * .65); ctx.lineTo(22 + p * 12, span * .65); ctx.stroke();
+      ctx.strokeStyle = '#39291f'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(-14, -span * 1.5); ctx.lineTo(8, span * 1.5); ctx.stroke();
     }
     ctx.restore();
   }

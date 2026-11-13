@@ -13,9 +13,9 @@ export const PIECES: Readonly<Record<PieceKind, PieceSpec>> = Object.freeze({
 export function pieceSpec(kind?: PieceKind): PieceSpec { return PIECES[kind ?? 'horse']; }
 export function maxImpulseFor(kind?: PieceKind): number { const p = pieceSpec(kind); return Math.floor(p.mass * p.maxSpeed * 1000); }
 export const RULES = Object.freeze({
-  version: 'janggi-alkkagi-4', engine: 'rapier2d-0.21.0',
+  version: 'janggi-alkkagi-5', engine: 'rapier2d-0.21.0',
   width: 9, height: 10, radius: .33, hz: 120, dt: 1 / 120,
-  maxImpulse: 27440, minImpulse: 200, impulseScale: 1000,
+  maxImpulse: 27440, minImpulse: 200, impulseScale: 1000, powerMultiplier: 1.25,
   // A fresh flick keeps its punch; braking builds with slide age and distance.
   damping: .12, slidingFriction: .65, brakingFriction: 11,
   launchGrace: .15, brakingRamp: .25, distanceBrake: 1.5, slowSpeed: 4,
