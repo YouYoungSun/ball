@@ -4,8 +4,10 @@ import type { GameEvent, MatchState, StoneState } from '../core/types.ts';
 export const TABLE = { x: 30, y: 30, w: 1040, h: 1040 / 9 * 10, width: 1100, height: 1220 };
 const SCALE = TABLE.w / RULES.width;
 const project = (x: number, y: number) => ({ x: TABLE.x + x * SCALE, y: TABLE.y + y * SCALE });
-interface Flash { x: number; y: number; age: number; strength: number; metal: boolean }
+interface Flash { x: number; y: number; age: number; strength: number; metal: boolean; nx: number; ny: number; mass: number }
 interface Falling { stone: StoneState; age: number }
+interface ShotTrail { age: number; x: number; y: number }
+interface Kick { age: number; x: number; y: number }
 export interface Aim { stoneId: number; x: number; y: number }
 const random = (n: number) => { const x = Math.sin(n * 12.9898) * 43758.5453; return x - Math.floor(x); };
 
@@ -17,22 +19,37 @@ export class TableView {
   private backdrop: HTMLCanvasElement;
   private flashes: Flash[] = [];
   private falls: Falling[] = [];
-  private trails = new Map<number, Array<{ x: number; y: number }>>();
-  private impact = 0;
-  private age = 0;
+  private trails = new Map<number, ShotTrail>();
+  private kicks: Kick[] = [];
   private canvas: HTMLCanvasElement;
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas; this.ctx = canvas.getContext('2d')!;
     this.backdrop = document.createElement('canvas'); this.backdrop.width = TABLE.width; this.backdrop.height = TABLE.height;
     this.paintBoard(this.backdrop.getContext('2d')!);
   }
-  clear(): void { this.flashes = []; this.falls = []; this.trails.clear(); this.impact = 0; }
+  clear(): void { this.flashes = []; this.falls = []; this.trails.clear(); this.kicks = []; }
   receive(events: GameEvent[], previous: MatchState): void {
     for (const e of events) {
+      if (e.kind === 'shot') {
+        const s = previous.stones.find(s => s.id === e.stoneId);
+        if (s) this.trails.set(s.id, { age: 0, x: s.x, y: s.y });
+      }
       if (e.kind === 'hit' || e.kind === 'hinge-hit') {
         const p = project(e.x, e.y), metal = e.kind === 'hinge-hit';
-        this.flashes.push({ ...p, age: 0, strength: e.strength, metal });
-        this.impact = Math.max(this.impact, e.strength * (metal ? 4.5 : 6));
+        const a = previous.stones.find(s => s.id === (e.kind === 'hit' ? e.a : e.stoneId));
+        const b = e.kind === 'hit' ? previous.stones.find(s => s.id === e.b) : undefined;
+        // The contact normal determines the mark and the single camera recoil.
+        let nx = b && a ? b.x - a.x : a ? e.x - a.x : 0;
+        let ny = b && a ? b.y - a.y : a ? e.y - a.y : 1;
+        const length = Math.hypot(nx, ny) || 1; nx /= length; ny /= length;
+        if (a && (a.vx - (b?.vx ?? 0)) * nx + (a.vy - (b?.vy ?? 0)) * ny < 0) { nx *= -1; ny *= -1; }
+        const mass = b && a ? Math.sqrt(pieceSpec(a.kind).mass * pieceSpec(b.kind).mass) : pieceSpec(a?.kind).mass;
+        const strength = Math.max(0, Math.min(1, e.strength));
+        if (strength > .07) this.flashes.push({ ...p, age: 0, strength, metal, nx, ny, mass });
+        if (strength > .24) {
+          const amplitude = Math.min(3.2, Math.pow((strength - .24) / .76, 1.2) * (2.1 + mass * .55)) * (metal ? .8 : 1);
+          this.kicks.push({ age: 0, x: nx * amplitude, y: ny * amplitude });
+        }
       }
       if (e.kind === 'removed') {
         const stone = previous.stones.find(s => s.id === e.stoneId);
@@ -42,24 +59,40 @@ export class TableView {
     }
   }
   render(state: MatchState, dt: number, selected: number | null, aim: Aim | null, previous?: MatchState, alpha = 1): void {
-    const ctx = this.ctx; this.age += dt;
+    const ctx = this.ctx;
     this.flashes.forEach(f => f.age += dt); this.falls.forEach(f => f.age += dt);
-    this.flashes = this.flashes.filter(f => f.age < (f.metal ? .22 : .30)); this.falls = this.falls.filter(f => f.age < .7);
-    this.impact *= Math.exp(-27 * dt);
+    this.flashes = this.flashes.filter(f => f.age < .075 + f.strength * .065); this.falls = this.falls.filter(f => f.age < .7);
+    this.kicks.forEach(k => k.age += dt); this.kicks = this.kicks.filter(k => k.age < .105);
     ctx.clearRect(0, 0, TABLE.width, TABLE.height); ctx.save();
-    if (this.shaking && this.effects) ctx.translate(Math.sin(this.age * 160) * this.impact, Math.cos(this.age * 133) * this.impact * .55);
+    if (this.shaking && this.effects) {
+      let x = 0, y = 0;
+      for (const k of this.kicks) { const t = k.age / .105, recoil = Math.exp(-t * 5) * Math.cos(t * Math.PI * 1.5); x += k.x * recoil; y += k.y * recoil; }
+      const length = Math.hypot(x, y), limit = length > 3.2 ? 3.2 / length : 1;
+      ctx.translate(x * limit, y * limit);
+    }
     ctx.drawImage(this.backdrop, 0, 0);
     const stones = state.stones.filter(s => s.alive).map(s => {
       const old = previous?.stones.find(o => o.id === s.id);
       return old?.alive ? { ...s, x: old.x + (s.x - old.x) * alpha, y: old.y + (s.y - old.y) * alpha } : s;
     });
     for (const s of stones) {
-      const speed = Math.hypot(s.vx, s.vy), spec = pieceSpec(s.kind);
-      let trail = this.trails.get(s.id) ?? []; this.trails.set(s.id, trail);
-      if (dt > 0) { if (speed > 2.7) { trail.unshift({ x: s.x, y: s.y }); if (trail.length > 4) trail.pop(); } else trail.pop(); }
-      if (this.effects && trail.length > 1) {
-        ctx.save(); ctx.globalAlpha = Math.min(.12, spec.mass * .045); ctx.strokeStyle = s.side ? '#8b3027' : '#1d4360'; ctx.lineWidth = spec.radius * SCALE * .9; ctx.lineCap = 'round'; ctx.beginPath();
-        trail.forEach((p, i) => { const t = project(p.x, p.y); i ? ctx.lineTo(t.x, t.y) : ctx.moveTo(t.x, t.y); }); ctx.stroke(); ctx.restore();
+      const speed = Math.hypot(s.vx, s.vy), spec = pieceSpec(s.kind), trail = this.trails.get(s.id);
+      if (!trail) continue;
+      trail.age += dt;
+      if (trail.age >= .11 || (trail.age > .025 && speed < 4.2)) { this.trails.delete(s.id); continue; }
+      if (this.effects && speed >= 4.2) {
+        const nx = s.vx / speed, ny = s.vy / speed, radius = spec.radius * SCALE;
+        const p = project(s.x, s.y), travel = Math.hypot(s.x - trail.x, s.y - trail.y);
+        const length = Math.min(.85, Math.max(.20, travel + speed * .026)) * SCALE;
+        const rearX = p.x - nx * radius * .65, rearY = p.y - ny * radius * .65;
+        ctx.save(); ctx.globalAlpha = Math.min(1, (speed - 3.5) / 3) * (1 - trail.age / .11);
+        const gradient = ctx.createLinearGradient(rearX - nx * length, rearY - ny * length, rearX, rearY);
+        gradient.addColorStop(0, 'rgba(96,62,33,0)'); gradient.addColorStop(1, 'rgba(91,55,27,.30)');
+        ctx.strokeStyle = gradient; ctx.lineWidth = radius * .75; ctx.lineCap = 'butt'; ctx.beginPath();
+        ctx.moveTo(rearX - nx * length, rearY - ny * length); ctx.lineTo(rearX, rearY); ctx.stroke();
+        ctx.strokeStyle = '#ffedbd'; ctx.globalAlpha *= .45; ctx.lineWidth = 1.6;
+        for (const side of [-1, 1]) { const ox = -ny * radius * .55 * side, oy = nx * radius * .55 * side; ctx.beginPath(); ctx.moveTo(rearX + ox - nx * length * .75, rearY + oy - ny * length * .75); ctx.lineTo(rearX + ox - nx * 4, rearY + oy - ny * 4); ctx.stroke(); }
+        ctx.restore();
       }
     }
     for (const s of stones.sort((a, b) => a.y - b.y)) this.stone(s);
@@ -105,14 +138,29 @@ export class TableView {
     ctx.restore();
   }
   private flash(f: Flash): void {
-    const ctx = this.ctx, p = f.age / (f.metal ? .22 : .30), length = f.metal ? 34 : 28;
-    ctx.save(); ctx.translate(f.x, f.y); ctx.globalAlpha = Math.max(0, 1 - p * 1.4) * (.4 + f.strength * .6);
-    for (let i = 0; i < (f.metal ? 7 : 9); i++) {
-      const angle = i * Math.PI * 2 / (f.metal ? 7 : 9), start = 7 + p * 13, end = start + (9 + random(i + 2) * length) * f.strength;
-      ctx.strokeStyle = f.metal ? i % 2 ? '#f5f1dd' : '#f7bf66' : '#ffedbd'; ctx.lineWidth = i % 3 ? 1.5 : 3;
-      ctx.beginPath(); ctx.moveTo(Math.cos(angle) * start, Math.sin(angle) * start); ctx.lineTo(Math.cos(angle) * end, Math.sin(angle) * end); ctx.stroke();
+    const ctx = this.ctx, p = f.age / (.075 + f.strength * .065);
+    const weight = Math.min(1.35, .7 + f.mass * .23), span = (3 + f.strength * 12) * weight;
+    ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(Math.atan2(f.ny, f.nx));
+    ctx.globalAlpha = Math.pow(Math.max(0, 1 - p), 1.6) * (.35 + f.strength * .65);
+    // A thin dark impression, immediately followed by a light contact edge:
+    // a tap stays a dot; a heavy collision briefly shows the shared hard edge.
+    ctx.strokeStyle = '#56351f'; ctx.lineWidth = 2 + f.strength * 1.8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(0, -span); ctx.lineTo(0, span); ctx.stroke();
+    ctx.strokeStyle = f.metal ? '#fff3d1' : '#fff0ca'; ctx.lineWidth = 1 + f.strength * 1.2;
+    ctx.beginPath(); ctx.moveTo(-1.5, -span * .88); ctx.lineTo(-1.5, span * .88); ctx.stroke();
+    if (f.strength > .34) {
+      const separation = 3 + p * 14 * f.strength, extension = (4 + f.strength * 10) * weight;
+      ctx.lineWidth = f.metal ? 1.7 : 1.4;
+      // Two compact chips along the contact tangent, never a radial burst.
+      for (const side of [-1, 1]) {
+        ctx.beginPath(); ctx.moveTo(-separation * .25, side * (span + separation));
+        ctx.lineTo(-separation * .6, side * (span + separation + extension)); ctx.stroke();
+      }
+      if (f.strength > .65 && p < .5) {
+        ctx.strokeStyle = '#624127'; ctx.lineWidth = 1.3; ctx.beginPath();
+        ctx.moveTo(-4 - p * 5, -span * .45); ctx.lineTo(-4 - p * 5, span * .45); ctx.stroke();
+      }
     }
-    if (!f.metal && f.strength > .6) { ctx.strokeStyle = '#5c3a23'; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.arc(0, 0, 10 + p * 35, .3, 1.4); ctx.stroke(); }
     ctx.restore();
   }
   private paintBoard(ctx: CanvasRenderingContext2D): void {

@@ -23,6 +23,6 @@ export interface MatchSnapshot {
   format: 1; rulesVersion: string; engine: string; matchId: string;
   tick: number; turn: number; side: Side; phase: Phase; winner: Side | 'draw' | null;
   shotTicks: number; quietTicks: number; seenShots: string[]; commands: ShotCommand[];
-  stones: Array<StoneSeed & { alive: boolean; bodyHandle: number }>;
+  stones: Array<StoneSeed & { alive: boolean; bodyHandle: number; slideTicks: number; slideDistance: number }>;
   physics: Uint8Array;
 }

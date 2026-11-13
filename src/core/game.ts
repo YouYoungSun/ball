@@ -4,7 +4,7 @@ import type { GameEvent, MatchSnapshot, MatchState, Phase, ShotCommand, ShotResu
 
 let ready: Promise<void> | undefined;
 export function initPhysics(): Promise<void> { return ready ??= RAPIER.init(); }
-interface Stone extends StoneSeed { alive: boolean; bodyHandle: number }
+interface Stone extends StoneSeed { alive: boolean; bodyHandle: number; slideTicks: number; slideDistance: number }
 
 /** No DOM, audio, network, random numbers, or wall-clock time in the rules. */
 export class Game {
@@ -39,7 +39,7 @@ export class Game {
       const collider = this.world.createCollider(RAPIER.ColliderDesc.ball(spec.radius)
         .setMass(spec.mass).setRestitution(RULES.restitution).setFriction(0)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
-      this.stones.push({ ...seed, alive: true, bodyHandle: body.handle });
+      this.stones.push({ ...seed, alive: true, bodyHandle: body.handle, slideTicks: 0, slideDistance: 0 });
       this.colliderToId.set(collider.handle, seed.id);
     }
   }
@@ -70,6 +70,7 @@ export class Game {
     this.commands.push({ ...c });
     const b = this.world.getRigidBody(stone.bodyHandle);
     b.applyImpulse({ x: c.impulseX / RULES.impulseScale, y: c.impulseY / RULES.impulseScale }, true);
+    for (const s of this.stones) { s.slideTicks = 0; s.slideDistance = 0; }
     this.phase = 'moving'; this.quietTicks = 0; this.shotTicks = 0;
     this.events.push({ kind: 'shot', tick: this.tick, stoneId: stone.id });
     return { accepted: true };
@@ -78,13 +79,26 @@ export class Game {
   stepFixed(): void {
     if (this.phase !== 'moving') return;
     this.tick++; this.shotTicks++;
-    // Planar Coulomb-style friction: in a top-down zero-gravity world there is no
-    // board collider beneath the pieces. Collider friction alone cannot supply it.
-    // Only the fixed simulation tick changes velocity; render rate has no effect.
+    // Board drag is deterministic and per moving piece. A newly struck piece gets
+    // the same brief glide as a launch, but repeated contacts do not renew it.
+    const positions = new Map<number, { x: number; y: number }>();
     for (const s of this.stones) {
       if (!s.alive) continue;
       const body = this.world.getRigidBody(s.bodyHandle), v = body.linvel();
-      const speed = Math.sqrt(v.x * v.x + v.y * v.y), next = Math.max(0, speed - RULES.slidingFriction * RULES.dt);
+      positions.set(s.id, { ...body.translation() });
+      const speed = Math.hypot(v.x, v.y);
+      if (speed <= RULES.restSpeed) {
+        s.slideTicks = 0; s.slideDistance = 0;
+        body.setLinvel({ x: 0, y: 0 }, true); continue;
+      }
+      const age = s.slideTicks * RULES.dt;
+      const ageWeight = Math.min(1, Math.max(0, (age - RULES.launchGrace) / RULES.brakingRamp));
+      const distanceWeight = Math.min(1, s.slideDistance / 5);
+      const slowWeight = Math.max(0, 1 - speed / RULES.slowSpeed);
+      const friction = RULES.slidingFriction + RULES.brakingFriction * ageWeight
+        + RULES.distanceBrake * distanceWeight + RULES.lowSpeedBrake * slowWeight;
+      const next = Math.max(0, speed - friction * RULES.dt);
+      s.slideTicks++;
       if (next <= RULES.restSpeed) body.setLinvel({ x: 0, y: 0 }, true);
       else { const scale = next / speed; body.setLinvel({ x: v.x * scale, y: v.y * scale }, true); }
     }
@@ -120,6 +134,8 @@ export class Game {
     for (const s of this.stones) {
       if (!s.alive) continue;
       const b = this.world.getRigidBody(s.bodyHandle), p = b.translation(), v = b.linvel();
+      const previous = positions.get(s.id)!;
+      s.slideDistance += Math.hypot(p.x - previous.x, p.y - previous.y);
       if (p.x < 0 || p.x > RULES.width || p.y < 0 || p.y > RULES.height) {
         s.alive = false;
         this.events.push({ kind: 'removed', tick: this.tick, stoneId: s.id, side: s.side, x: p.x, y: p.y, vx: v.x, vy: v.y });
@@ -158,6 +174,9 @@ export class Game {
       !Array.isArray(snapshot.stones) || snapshot.stones.length > 32 ||
       !Array.isArray(snapshot.seenShots) || snapshot.seenShots.length > RULES.maxTurns ||
       !Array.isArray(snapshot.commands) || snapshot.commands.length > RULES.maxTurns) throw new Error('잘못된 스냅샷 형식입니다.');
+    if (snapshot.stones.some(s => !Number.isSafeInteger(s.slideTicks) || s.slideTicks < 0 ||
+      s.slideTicks > RULES.maxShotTicks || !Number.isFinite(s.slideDistance) ||
+      s.slideDistance < 0 || s.slideDistance > 1000)) throw new Error('잘못된 이동 이력입니다.');
     const g = new Game(snapshot.matchId, []);
     try {
     const world = RAPIER.World.restoreSnapshot(snapshot.physics); g.world.free(); g.world = world;

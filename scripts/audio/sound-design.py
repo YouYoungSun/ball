@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 import wave
 import numpy as np
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, sosfilt, iirpeak, lfilter
 
 PROJECT = Path(__file__).resolve().parents[2]
 ROOT = PROJECT / 'public' / 'audio'
@@ -18,7 +18,7 @@ PEAK = 10 ** (-3 / 20)
 def filtered_noise(n, rng, low=150, high=10000):
     return sosfilt(butter(2, [low, min(high, SR * .46)], btype='bandpass', fs=SR, output='sos'), rng.normal(0, 1, n))
 
-def impact(kind, variation):
+def legacy_impact(kind, variation):
     rng = np.random.default_rng(20261113 + variation * 43 + len(kind) * 997)
     length = {'hitSoft': .075, 'hitMedium': .11, 'hitHard': .145, 'hinge': .16, 'flick': .08}[kind]
     t = np.arange(round(length * SR)) / SR
@@ -51,6 +51,39 @@ def impact(kind, variation):
     tail = np.minimum(1, (length - t) / .008)
     return x * attack * tail
 
+def impact(kind, variation):
+    # Preserve approved small-piece and noncollision sounds byte-for-byte.
+    if kind not in ('hitMedium', 'hitHard'):
+        return legacy_impact(kind, variation)
+    rng = np.random.default_rng(20261113 + variation * 139 + (817 if kind == 'hitHard' else 431))
+    hard = kind == 'hitHard'
+    length = .095 if hard else .085
+    t = np.arange(round(length * SR)) / SR
+    detune = 1 + (variation - 1) * .023
+    # A short irregular contact excites broad, damped wood modes. No free-running sine body.
+    excitation = rng.normal(0, 1, len(t)) * np.exp(-t / (.0018 if hard else .0013))
+    excitation[0] += 1.2
+    x = filtered_noise(len(t), rng, 1450 if hard else 1800, 7400) * np.exp(-t / .0015) * .20
+    modes = ([(640, 3.0, .85), (1090, 3.7, 1.0), (1735, 4.0, .85),
+              (2670, 4.6, .47), (3910, 3.4, .20)] if hard else
+             [(860, 3.3, .75), (1470, 4.0, 1.0), (2380, 4.5, .72),
+              (3560, 4.0, .32), (4930, 3.0, .12)])
+    for freq, q, gain in modes:
+        b, a = iirpeak(freq * detune, q, fs=SR)
+        x += lfilter(b, a, excitation) * gain * 2.5
+    # Compact broadband board transfer adds density, without a low pitched 'doong'.
+    body = filtered_noise(len(t), rng, 470 if hard else 650, 2400 if hard else 3000)
+    x += body * np.exp(-t / (.0065 if hard else .0045)) * (.31 if hard else .21)
+    # A tiny irregular secondary contact reads as hard wood rather than a bell.
+    offset = round((.0021 + variation * .00017) * SR)
+    contact = filtered_noise(len(t), rng, 950, 4100) * np.exp(-t / .0012)
+    x[offset:] += contact[:-offset] * (.09 if hard else .06)
+    x = sosfilt(butter(2, [350, 6100 if hard else 6800], btype='bandpass', fs=SR, output='sos'), x)
+    # Round isolated contact spikes before peak normalization; keep a dense short attack.
+    x = np.tanh(x / max(np.max(np.abs(x)), 1e-12) * 2.0)
+    x *= np.minimum(1, (length - t) / .006)
+    return x
+
 def add_at(target, source, seconds, gain=1):
     start = round(seconds * SR)
     end = min(len(target), start + len(source))
@@ -61,13 +94,13 @@ def render(kind, variant):
         return impact(kind, variant)
     if kind == 'fall':
         x = np.zeros(round(.36 * SR))
-        add_at(x, impact('hitMedium', variant), 0, .55)
+        add_at(x, legacy_impact('hitMedium', variant), 0, .55)
         add_at(x, impact('hitSoft', variant + 1), .095 + variant * .005, .30)
         add_at(x, impact('hitSoft', variant + 2), .195 + variant * .004, .13)
         return x
     if kind == 'win':
         x = np.zeros(round(.28 * SR))
-        add_at(x, impact('hitMedium', variant), 0, .45)
+        add_at(x, legacy_impact('hitMedium', variant), 0, .45)
         add_at(x, impact('hitSoft', variant + 1), .085, .30)
         return x
     raise ValueError(kind)
@@ -108,7 +141,21 @@ def main():
         add_at(audition, rendered[(kind, 1)], when, .78)
         order.append({'atSeconds': round(when, 2), 'sound': kind})
     write_wav(REPORT_ROOT / 'audition.wav', audition, peak=10 ** (-5 / 20))
-    (REPORT_ROOT / 'sound-analysis.json').write_text(json.dumps({'revision': 'v0.3-bright', 'sampleRate': SR, 'format': 'PCM16 mono', 'clips': report, 'auditionOrder': order}, indent=2) + '\n')
+    write_wav(REPORT_ROOT / 'audition-v04.wav', audition, peak=10 ** (-5 / 20))
+    comparison = np.zeros(round(6.2 * SR))
+    comparison_order = []
+    for n, (revision, kind) in enumerate([('v03', 'hitMedium'), ('v04', 'hitMedium'), ('v03', 'hitHard'), ('v04', 'hitHard')]):
+        when = .2 + n * 1.4
+        if revision == 'v03':
+            with wave.open(str(REPORT_ROOT / 'v03-reference' / f'{kind}-02.wav'), 'rb') as source:
+                samples = np.frombuffer(source.readframes(source.getnframes()), dtype='<i2').astype(float) / 32767
+        else:
+            samples = rendered[(kind, 1)]
+        add_at(comparison, samples, when, .78)
+        comparison_order.append({'atSeconds': round(when, 2), 'revision': revision, 'sound': kind})
+    write_wav(REPORT_ROOT / 'compare-medium-hard-v03-v04.wav', comparison, peak=10 ** (-5 / 20))
+    (REPORT_ROOT / 'comparison-order.json').write_text(json.dumps(comparison_order, indent=2) + '\n')
+    (REPORT_ROOT / 'sound-analysis.json').write_text(json.dumps({'revision': 'v0.4-dry-wood', 'sampleRate': SR, 'format': 'PCM16 mono', 'clips': report, 'auditionOrder': order}, indent=2) + '\n')
     assert all(s['clippedSamples'] == 0 and s['leadingMsAtMinus45dB'] < 5 for s in report)
     print(json.dumps({'files': len(report), 'sampleRate': SR, 'clipCount': sum(s['clippedSamples'] for s in report), 'maximumLeadingMs': max(s['leadingMsAtMinus45dB'] for s in report), 'bytes': sum(p.stat().st_size for p in ROOT.glob('*.wav'))}))
 

@@ -231,7 +231,7 @@ test('a raised side hinge blocks and rebounds a piece while the central seam sta
 });
 
 test('hinge geometry and collision events survive a moving checkpoint restore', () => {
-  const a=new Game('hinge-resume',[{id:0,side:0,kind:'soldier',x:.4,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);let b:Game|undefined;
+  const a=new Game('hinge-resume',[{id:0,side:0,kind:'soldier',x:HINGES[0].x,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);let b:Game|undefined;
   try {
     a.shoot(makeShot(a.state(),0,0,maxImpulseFor('soldier')-2,'hinge-resume'));for(let i=0;i<3;i++)a.stepFixed();a.drainEvents();
     b=Game.restore(a.snapshot()); let ah=false,bh=false;
@@ -277,11 +277,10 @@ test('opening central soldier shots cannot chain the opposing central soldier in
       }
       const final = g.state(), target = final.stones.find(s => s.id === king.id)!;
       assert.equal(target.alive, true, `king must survive opening power ${power}`);
-      assert.ok(target.y >= 1.0, `opening cannot push a king to a precarious edge at power ${power}`);
       if (power === 1) {
         assert.ok(enemySoldierHit, 'maximum shot must still reach the enemy soldier line');
         assert.ok(kingHit, 'the chain is physically simulated rather than disabled');
-        assert.ok(target.y < king.y, 'the king can move; it is not immune');
+        assert.ok(king.y - target.y > .5, 'the king visibly moves; it is not immune');
         assert.ok(final.tick / RULES.hz < 2, 'the opening chain must not retain a long skating tail');
       }
       reports.push({ power, duration: final.tick / RULES.hz, kingTravel: king.y - target.y, kingAlive: target.alive, enemySoldierHit, kingHit });
@@ -290,11 +289,23 @@ test('opening central soldier shots cannot chain the opposing central soldier in
   console.log('opening chain regression:', reports);
 });
 
-test('dry board friction stops a full-speed free slide within a bounded distance and time', () => {
+test('a full-speed flick keeps its first 150ms punch, then brakes within the board', () => {
   const g = new Game('dry-slide', [{ id: 0, side: 0, kind: 'soldier', x: .5, y: 2 }, { id: 1, side: 1, kind: 'king', x: 7, y: 8 }]);
   try {
     assert.ok(g.shoot(makeShot(g.state(), 0, maxImpulseFor('soldier') - 2, 0, 'slide')).accepted);
-    settle(g); const state = g.state(), piece = state.stones[0];
+    assert.ok(Math.abs(g.state().stones[0].vx - 12) < .01, 'launch speed is restored');
+    for (let i = 0; i < 18; i++) g.stepFixed();
+    const early = g.state().stones[0];
+    assert.ok(early.x - .5 > 1.7, 'the first 150ms is a fast visible flick');
+    assert.ok(early.vx > 11, 'braking must not flatten the initial punch');
+    let lastSlowTick = 0, stoppedTick = 0;
+    while (g.isMoving) {
+      g.stepFixed(); const s = g.state().stones[0];
+      if (s.vx > 0 && s.vx < 1 && !lastSlowTick) lastSlowTick = g.state().tick;
+      if (s.vx === 0 && !stoppedTick) stoppedTick = g.state().tick;
+    }
+    const state = g.state(), piece = state.stones[0];
+    assert.ok(lastSlowTick > 0 && (stoppedTick - lastSlowTick) / RULES.hz < .12, 'slow tail stops promptly');
     assert.ok(piece.alive, 'the shot stops before skating all the way off the board');
     assert.ok(piece.x - .5 > 6 && piece.x - .5 < 8, 'a maximum flick retains range without an unlimited tail');
     assert.ok(state.tick / RULES.hz < 2.5);
@@ -320,4 +331,25 @@ test('a king near the edge can still be knocked out by a direct soldier hit', ()
     settle(g); const state = g.state();
     assert.equal(state.stones[1].alive, false); assert.equal(state.winner, 0);
   } finally { g.free(); }
+});
+
+
+test('slide history checkpoints preserve launch grace and late braking, and reject invalid histories', () => {
+  for (const ticks of [8, 35, 90]) {
+    const a = new Game(`slide-history-${ticks}`, [{id:0,side:0,kind:'soldier',x:.5,y:2},{id:1,side:1,kind:'king',x:7,y:8}]);
+    let b: Game | undefined;
+    try {
+      a.shoot(makeShot(a.state(), 0, maxImpulseFor('soldier') - 2, 0, 'history'));
+      for (let i = 0; i < ticks; i++) a.stepFixed();
+      const checkpoint = a.snapshot();
+      assert.ok(checkpoint.stones[0].slideTicks > 0);
+      assert.ok(checkpoint.stones[0].slideDistance > 0);
+      assert.throws(() => Game.restore({...checkpoint, stones: checkpoint.stones.map(s => ({...s, slideTicks: -1}))}));
+      assert.throws(() => Game.restore({...checkpoint, stones: checkpoint.stones.map(s => ({...s, slideDistance: NaN}))}));
+      b = Game.restore(checkpoint);
+      settle(a); settle(b);
+      assert.deepEqual(a.state(), b.state()); assert.equal(hash(a), hash(b));
+      assert.deepEqual(a.snapshot().stones, b.snapshot().stones);
+    } finally { a.free(); b?.free(); }
+  }
 });

@@ -1,5 +1,5 @@
 {
-  "revision": "v0.3-bright",
+  "revision": "v0.4-dry-wood",
   "sampleRate": 48000,
   "format": "PCM16 mono",
   "clips": [
@@ -71,69 +71,69 @@
     },
     {
       "file": "hitMedium-01.wav",
-      "seconds": 0.11,
+      "seconds": 0.085,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.97,
-      "attack35msRmsDbFS": -20.01,
-      "leadingMsAtMinus45dB": 0.062,
+      "rmsDbFS": -24.33,
+      "attack35msRmsDbFS": -20.48,
+      "leadingMsAtMinus45dB": 0.021,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7682,
-      "energyBelow300HzPercent": 0.69
+      "spectralCentroidHz": 3882,
+      "energyBelow300HzPercent": 0.28
     },
     {
       "file": "hitMedium-02.wav",
-      "seconds": 0.11,
+      "seconds": 0.085,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.27,
-      "attack35msRmsDbFS": -19.31,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -23.07,
+      "attack35msRmsDbFS": -19.21,
+      "leadingMsAtMinus45dB": 0.0,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7458,
-      "energyBelow300HzPercent": 0.26
+      "spectralCentroidHz": 3790,
+      "energyBelow300HzPercent": 0.1
     },
     {
       "file": "hitMedium-03.wav",
-      "seconds": 0.11,
+      "seconds": 0.085,
       "peakDbFS": -3.0,
-      "rmsDbFS": -26.08,
-      "attack35msRmsDbFS": -21.12,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -22.65,
+      "attack35msRmsDbFS": -18.8,
+      "leadingMsAtMinus45dB": 0.0,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7265,
-      "energyBelow300HzPercent": 0.17
+      "spectralCentroidHz": 4334,
+      "energyBelow300HzPercent": 0.05
     },
     {
       "file": "hitHard-01.wav",
-      "seconds": 0.145,
+      "seconds": 0.095,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.95,
-      "attack35msRmsDbFS": -19.83,
-      "leadingMsAtMinus45dB": 0.042,
+      "rmsDbFS": -22.21,
+      "attack35msRmsDbFS": -17.87,
+      "leadingMsAtMinus45dB": 0.0,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6635,
-      "energyBelow300HzPercent": 19.14
+      "spectralCentroidHz": 3998,
+      "energyBelow300HzPercent": 0.1
     },
     {
       "file": "hitHard-02.wav",
-      "seconds": 0.145,
+      "seconds": 0.095,
       "peakDbFS": -3.0,
-      "rmsDbFS": -23.74,
-      "attack35msRmsDbFS": -17.62,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -20.94,
+      "attack35msRmsDbFS": -16.6,
+      "leadingMsAtMinus45dB": 0.0,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6843,
-      "energyBelow300HzPercent": 21.64
+      "spectralCentroidHz": 4005,
+      "energyBelow300HzPercent": 0.31
     },
     {
       "file": "hitHard-03.wav",
-      "seconds": 0.145,
+      "seconds": 0.095,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.08,
-      "attack35msRmsDbFS": -17.97,
-      "leadingMsAtMinus45dB": 0.042,
+      "rmsDbFS": -22.23,
+      "attack35msRmsDbFS": -17.89,
+      "leadingMsAtMinus45dB": 0.0,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6929,
-      "energyBelow300HzPercent": 19.53
+      "spectralCentroidHz": 3195,
+      "energyBelow300HzPercent": 0.14
     },
     {
       "file": "hinge-01.wav",

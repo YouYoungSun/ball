@@ -1,0 +1,22 @@
+[
+  {
+    "atSeconds": 0.2,
+    "revision": "v03",
+    "sound": "hitMedium"
+  },
+  {
+    "atSeconds": 1.6,
+    "revision": "v04",
+    "sound": "hitMedium"
+  },
+  {
+    "atSeconds": 3.0,
+    "revision": "v03",
+    "sound": "hitHard"
+  },
+  {
+    "atSeconds": 4.4,
+    "revision": "v04",
+    "sound": "hitHard"
+  }
+]
