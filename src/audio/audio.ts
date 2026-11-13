@@ -16,6 +16,7 @@ export class AudioPlayer {
   private clips: Partial<Record<SoundName, AudioBuffer[]>> = {};
   private lastSound = new Map<SoundName, number>();
   private cursor = 0;
+  private poweredStone: number | null = null;
   private loading?: Promise<void>;
   private voices = new Set<Voice>();
   private prepared = this.prepare();
@@ -67,18 +68,30 @@ export class AudioPlayer {
 
   event(e: GameEvent, state?: MatchState): void {
     if (!this.enabled || !this.context || this.context.state !== 'running') return;
+    if (e.kind === 'turn-ended') this.poweredStone = null;
     if (e.kind === 'hit') {
+      const powered = e.a === this.poweredStone || e.b === this.poweredStone;
+      if (powered) this.poweredStone = null;
       const a = state?.stones.find(s => s.id === e.a), b = state?.stones.find(s => s.id === e.b);
       const mass = Math.max(pieceSpec(a?.kind).mass, pieceSpec(b?.kind).mass);
       const sample: SoundName = mass >= 1.8 ? 'hitHard' : mass >= 1.1 ? 'hitMedium' : 'hitSoft';
-      this.play(sample, e.strength, 1 + e.strength);
-    } else if (e.kind === 'hinge-hit') this.play('hinge', e.strength, 2 + e.strength);
-    else if (e.kind === 'removed') this.play('fall', .7, 3);
-    else if (e.kind === 'shot') this.play('flick', e.power, .5 + e.power * .3);
+      this.play(sample, e.strength, 1 + e.strength + (powered ? .4 : 0), 0, powered ? .84 : 1, powered ? 1.18 : 1);
+    } else if (e.kind === 'hinge-hit') {
+      const powered = e.stoneId === this.poweredStone;
+      if (powered) this.poweredStone = null;
+      this.play('hinge', e.strength, 2 + e.strength, 0, powered ? .9 : 1, powered ? 1.12 : 1);
+    } else if (e.kind === 'removed') {
+      if (e.stoneId === this.poweredStone) this.poweredStone = null;
+      // The piece clears the edge first; its landing follows the visible drop.
+      this.play('fall', .7, 3, .09);
+    } else if (e.kind === 'shot') {
+      this.poweredStone = e.skill === 'power' ? e.stoneId : null;
+      this.play('flick', e.power, .5 + e.power * .3, 0, e.skill === 'power' ? .88 : 1, e.skill === 'power' ? 1.25 : 1);
+    }
     else if (e.kind === 'match-ended') this.play('win', .5, 4, .48);
   }
 
-  private play(name: SoundName, strength: number, priority: number, delay = 0): void {
+  private play(name: SoundName, strength: number, priority: number, delay = 0, pitch = 1, level = 1): void {
     const ctx = this.context!, samples = this.clips[name];
     if (!samples?.length || !this.bus) return;
     const now = ctx.currentTime;
@@ -96,9 +109,9 @@ export class AudioPlayer {
     }
     const source = ctx.createBufferSource(), gain = ctx.createGain();
     const index = this.cursor++;
-    source.buffer = samples[index % samples.length]; source.playbackRate.value = .995 + index % 4 * .01;
+    source.buffer = samples[index % samples.length]; source.playbackRate.value = (.995 + index % 4 * .01) * pitch;
     const mix: Record<SoundName, number> = { flick: .15, hitSoft: .36, hitMedium: .39, hitHard: .40, hinge: .31, fall: .38, win: .22 };
-    gain.gain.value = mix[name] * (.28 + Math.max(0, Math.min(1, strength)) * .72);
+    gain.gain.value = mix[name] * level * (.28 + Math.max(0, Math.min(1, strength)) * .72);
     source.connect(gain).connect(this.bus);
     const voice = { source, priority, started: now, name, strength }; this.voices.add(voice);
     source.onended = () => { this.voices.delete(voice); source.disconnect(); gain.disconnect(); };
@@ -108,7 +121,7 @@ export class AudioPlayer {
   /** Cancel current and scheduled sounds when leaving or restarting a match. */
   reset(): void {
     for (const voice of this.voices) voice.source.stop();
-    this.voices.clear(); this.lastSound.clear();
+    this.voices.clear(); this.lastSound.clear(); this.poweredStone = null;
   }
 
   suspend(): void { this.reset(); void this.context?.suspend(); }

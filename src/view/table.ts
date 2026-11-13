@@ -69,6 +69,7 @@ export class TableView {
       }
       if (e.kind === 'turn-ended') this.poweredStone = null;
       if (e.kind === 'removed') {
+        if (e.stoneId === this.poweredStone) this.poweredStone = null;
         const stone = previous.stones.find(s => s.id === e.stoneId);
         if (stone) this.falls.push({ stone: { ...stone, x: e.x, y: e.y, vx: e.vx, vy: e.vy }, age });
         this.trails.delete(e.stoneId);
@@ -78,7 +79,7 @@ export class TableView {
   render(state: MatchState, dt: number, selected: number | null, aim: Aim | null, previous?: MatchState, alpha = 1): void {
     const ctx = this.ctx;
     this.flashes.forEach(f => f.age += dt); this.falls.forEach(f => f.age += dt);
-    this.flashes = this.flashes.filter(f => f.age < .075 + f.strength * .065); this.falls = this.falls.filter(f => f.age < .7);
+    this.flashes = this.flashes.filter(f => f.age < (f.powered ? .34 : .075 + f.strength * .065)); this.falls = this.falls.filter(f => f.age < .7);
     this.powerStrokes.forEach(s => s.age += dt); this.powerStrokes = this.powerStrokes.filter(s => s.age < .19);
     this.kicks.forEach(k => k.age += dt); this.kicks = this.kicks.filter(k => k.age < .105);
     ctx.clearRect(0, 0, TABLE.width, TABLE.height); ctx.save();
@@ -114,6 +115,7 @@ export class TableView {
         ctx.restore();
       }
     }
+    if (this.effects) for (const s of stones) if (s.id === this.poweredStone) this.powerWake(s);
     for (const s of stones.sort((a, b) => a.y - b.y)) this.stone(s);
     for (const f of this.falls) this.stone({ ...f.stone, x: f.stone.x + f.stone.vx * f.age * .1, y: f.stone.y + f.stone.vy * f.age * .1 }, f.age / .7);
     if (state.phase === 'aiming' && selected !== null) { const s = stones.find(s => s.id === selected); if (s) this.drawAim(s, aim); }
@@ -156,6 +158,25 @@ export class TableView {
     const label = spec.label[s.side]; ctx.fillStyle = '#fff0c38c'; ctx.fillText(label, .6, 1); ctx.fillStyle = s.side ? '#a1372b' : '#234e72'; ctx.fillText(label, 0, 0);
     ctx.restore();
   }
+  /** A moving, bounded silhouette carries the launch cue to the first contact. */
+  private powerWake(s: StoneState): void {
+    const speed = Math.hypot(s.vx, s.vy);
+    if (speed < 2) return;
+    const ctx = this.ctx, p = project(s.x, s.y), radius = pieceSpec(s.kind).radius * SCALE;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.atan2(s.vy, s.vx));
+    ctx.globalAlpha = Math.min(.8, (speed - 2) / 9);
+    // Two short tapered streaks frame the wood; no glow over the character.
+    for (const side of [-1, 1]) {
+      ctx.fillStyle = '#49321e'; ctx.beginPath();
+      ctx.moveTo(-radius * 2.6, side * radius * .78);
+      ctx.lineTo(-radius * .25, side * radius * 1.04);
+      ctx.lineTo(-radius * .55, side * radius * .86); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#ffe6ac'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.moveTo(-radius * 1.9, side * radius * .85);
+      ctx.lineTo(-radius * .2, side * radius * 1.02); ctx.stroke();
+    }
+    ctx.restore();
+  }
   private powerStroke(s: PowerStroke): void {
     const ctx = this.ctx, t = s.age / .19;
     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(Math.atan2(s.ny, s.nx));
@@ -172,7 +193,8 @@ export class TableView {
     ctx.restore();
   }
   private flash(f: Flash): void {
-    const ctx = this.ctx, p = f.age / (.075 + f.strength * .065);
+    if (f.powered) this.powerSeal(f);
+    const ctx = this.ctx, p = Math.min(1, f.age / (.075 + f.strength * .065 + (f.powered ? .075 : 0)));
     const weight = Math.min(1.35, .7 + f.mass * .23), span = (3 + f.strength * 12) * weight;
     ctx.save(); ctx.translate(f.x, f.y); ctx.rotate(Math.atan2(f.ny, f.nx));
     ctx.globalAlpha = Math.pow(Math.max(0, 1 - p), 1.6) * (.35 + f.strength * .65);
@@ -196,11 +218,33 @@ export class TableView {
       }
     }
     if (f.powered) {
-      ctx.strokeStyle = '#ffe2a0'; ctx.lineWidth = 3.2; ctx.globalAlpha *= .9;
-      ctx.beginPath(); ctx.moveTo(-22 - p * 12, -span * .65); ctx.lineTo(22 + p * 12, span * .65); ctx.stroke();
-      ctx.strokeStyle = '#39291f'; ctx.lineWidth = 2; ctx.beginPath();
-      ctx.moveTo(-14, -span * 1.5); ctx.lineTo(8, span * 1.5); ctx.stroke();
+      // A broad contact bracket opens along the transfer direction, then disappears.
+      // It remains attached to the actual collision, never to the whole board.
+      const spread = 8 + p * 30, height = span * (1.6 - p * .35);
+      ctx.globalAlpha = Math.pow(1 - p, 1.25) * (.5 + f.strength * .5);
+      ctx.lineJoin = 'miter';
+      for (const side of [-1, 1]) {
+        ctx.strokeStyle = '#49301d'; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(side * (spread + 13), -height);
+        ctx.lineTo(side * spread, 0); ctx.lineTo(side * (spread + 13), height); ctx.stroke();
+        ctx.strokeStyle = '#ffe6ad'; ctx.lineWidth = 2; ctx.stroke();
+      }
     }
+    ctx.restore();
+  }
+  /** A compact red seal stays readable at phone scale without hiding either piece. */
+  private powerSeal(f: Flash): void {
+    const ctx = this.ctx, t = f.age / .34;
+    const tx = Math.max(TABLE.x + 60, Math.min(TABLE.x + TABLE.w - 60, f.x + 83));
+    const ty = Math.max(TABLE.y + 35, Math.min(TABLE.y + TABLE.h - 35, f.y - 26 - t * 10));
+    ctx.save(); ctx.translate(tx, ty); ctx.rotate(-.09);
+    ctx.globalAlpha = Math.min(1, (1 - t) / .45);
+    const scale = 1 + .12 * Math.max(0, 1 - t / .2); ctx.scale(scale, scale);
+    ctx.fillStyle = '#842e20'; ctx.fillRect(-48, -25, 96, 50);
+    ctx.strokeStyle = '#f6d59b'; ctx.lineWidth = 2; ctx.strokeRect(-44, -21, 88, 42);
+    ctx.fillStyle = '#ffebbd'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = '800 30px "Noto Serif KR", "Noto Serif CJK KR", serif';
+    ctx.fillText('강타', 0, 1);
     ctx.restore();
   }
   private paintBoard(ctx: CanvasRenderingContext2D): void {
