@@ -1,195 +1,238 @@
 {
+  "revision": "v0.3-bright",
   "sampleRate": 48000,
   "format": "PCM16 mono",
   "clips": [
     {
       "file": "flick-01.wav",
-      "seconds": 0.115,
+      "seconds": 0.08,
       "peakDbFS": -3.0,
-      "rmsDbFS": -20.53,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -20.25,
+      "attack35msRmsDbFS": -16.7,
+      "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7313
+      "spectralCentroidHz": 8048,
+      "energyBelow300HzPercent": 0.01
     },
     {
       "file": "flick-02.wav",
-      "seconds": 0.115,
+      "seconds": 0.08,
       "peakDbFS": -3.0,
-      "rmsDbFS": -19.86,
+      "rmsDbFS": -20.57,
+      "attack35msRmsDbFS": -17.02,
       "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7182
+      "spectralCentroidHz": 7930,
+      "energyBelow300HzPercent": 0.01
     },
     {
       "file": "flick-03.wav",
-      "seconds": 0.115,
+      "seconds": 0.08,
       "peakDbFS": -3.0,
-      "rmsDbFS": -20.78,
+      "rmsDbFS": -21.3,
+      "attack35msRmsDbFS": -17.75,
       "leadingMsAtMinus45dB": 0.104,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7184
+      "spectralCentroidHz": 7695,
+      "energyBelow300HzPercent": 0.0
     },
     {
       "file": "hitSoft-01.wav",
-      "seconds": 0.105,
+      "seconds": 0.075,
       "peakDbFS": -3.0,
-      "rmsDbFS": -23.91,
+      "rmsDbFS": -23.73,
+      "attack35msRmsDbFS": -20.42,
       "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6756
+      "spectralCentroidHz": 7975,
+      "energyBelow300HzPercent": 0.13
     },
     {
       "file": "hitSoft-02.wav",
-      "seconds": 0.105,
+      "seconds": 0.075,
       "peakDbFS": -3.0,
-      "rmsDbFS": -22.84,
+      "rmsDbFS": -23.67,
+      "attack35msRmsDbFS": -20.36,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6953
+      "spectralCentroidHz": 8130,
+      "energyBelow300HzPercent": 0.22
     },
     {
       "file": "hitSoft-03.wav",
-      "seconds": 0.105,
+      "seconds": 0.075,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.17,
-      "leadingMsAtMinus45dB": 0.062,
+      "rmsDbFS": -22.21,
+      "attack35msRmsDbFS": -18.9,
+      "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6898
+      "spectralCentroidHz": 8220,
+      "energyBelow300HzPercent": 0.07
     },
     {
       "file": "hitMedium-01.wav",
-      "seconds": 0.16,
+      "seconds": 0.11,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.14,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -24.97,
+      "attack35msRmsDbFS": -20.01,
+      "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6009
+      "spectralCentroidHz": 7682,
+      "energyBelow300HzPercent": 0.69
     },
     {
       "file": "hitMedium-02.wav",
-      "seconds": 0.16,
+      "seconds": 0.11,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.95,
-      "leadingMsAtMinus45dB": 0.104,
+      "rmsDbFS": -24.27,
+      "attack35msRmsDbFS": -19.31,
+      "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6228
+      "spectralCentroidHz": 7458,
+      "energyBelow300HzPercent": 0.26
     },
     {
       "file": "hitMedium-03.wav",
-      "seconds": 0.16,
+      "seconds": 0.11,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.33,
+      "rmsDbFS": -26.08,
+      "attack35msRmsDbFS": -21.12,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5718
+      "spectralCentroidHz": 7265,
+      "energyBelow300HzPercent": 0.17
     },
     {
       "file": "hitHard-01.wav",
-      "seconds": 0.225,
+      "seconds": 0.145,
       "peakDbFS": -3.0,
-      "rmsDbFS": -21.2,
-      "leadingMsAtMinus45dB": 0.062,
+      "rmsDbFS": -25.95,
+      "attack35msRmsDbFS": -19.83,
+      "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5031
+      "spectralCentroidHz": 6635,
+      "energyBelow300HzPercent": 19.14
     },
     {
       "file": "hitHard-02.wav",
-      "seconds": 0.225,
+      "seconds": 0.145,
       "peakDbFS": -3.0,
-      "rmsDbFS": -21.94,
+      "rmsDbFS": -23.74,
+      "attack35msRmsDbFS": -17.62,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5214
+      "spectralCentroidHz": 6843,
+      "energyBelow300HzPercent": 21.64
     },
     {
       "file": "hitHard-03.wav",
-      "seconds": 0.225,
+      "seconds": 0.145,
       "peakDbFS": -3.0,
-      "rmsDbFS": -21.01,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -24.08,
+      "attack35msRmsDbFS": -17.97,
+      "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5270
+      "spectralCentroidHz": 6929,
+      "energyBelow300HzPercent": 19.53
     },
     {
       "file": "hinge-01.wav",
-      "seconds": 0.255,
+      "seconds": 0.16,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.01,
+      "rmsDbFS": -26.69,
+      "attack35msRmsDbFS": -20.16,
       "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 8086
+      "spectralCentroidHz": 8892,
+      "energyBelow300HzPercent": 0.0
     },
     {
       "file": "hinge-02.wav",
-      "seconds": 0.255,
+      "seconds": 0.16,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.6,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -26.82,
+      "attack35msRmsDbFS": -20.29,
+      "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7627
+      "spectralCentroidHz": 8377,
+      "energyBelow300HzPercent": 0.01
     },
     {
       "file": "hinge-03.wav",
-      "seconds": 0.255,
+      "seconds": 0.16,
       "peakDbFS": -3.0,
-      "rmsDbFS": -26.77,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -25.01,
+      "attack35msRmsDbFS": -18.48,
+      "leadingMsAtMinus45dB": 0.042,
       "clippedSamples": 0,
-      "spectralCentroidHz": 7750
+      "spectralCentroidHz": 8321,
+      "energyBelow300HzPercent": 0.01
     },
     {
       "file": "fall-01.wav",
-      "seconds": 0.52,
+      "seconds": 0.36,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.39,
+      "rmsDbFS": -29.23,
+      "attack35msRmsDbFS": -20.01,
       "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5219
+      "spectralCentroidHz": 7737,
+      "energyBelow300HzPercent": 0.61
     },
     {
       "file": "fall-02.wav",
-      "seconds": 0.52,
+      "seconds": 0.36,
       "peakDbFS": -3.0,
-      "rmsDbFS": -25.09,
+      "rmsDbFS": -28.59,
+      "attack35msRmsDbFS": -19.31,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5256
+      "spectralCentroidHz": 7594,
+      "energyBelow300HzPercent": 0.24
     },
     {
       "file": "fall-03.wav",
-      "seconds": 0.52,
+      "seconds": 0.36,
       "peakDbFS": -3.0,
-      "rmsDbFS": -24.15,
+      "rmsDbFS": -30.27,
+      "attack35msRmsDbFS": -21.12,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5359
+      "spectralCentroidHz": 7458,
+      "energyBelow300HzPercent": 0.18
     },
     {
       "file": "win-01.wav",
-      "seconds": 0.44,
+      "seconds": 0.28,
       "peakDbFS": -3.0,
-      "rmsDbFS": -29.01,
-      "leadingMsAtMinus45dB": 0.083,
+      "rmsDbFS": -27.93,
+      "attack35msRmsDbFS": -20.01,
+      "leadingMsAtMinus45dB": 0.062,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6116
+      "spectralCentroidHz": 7745,
+      "energyBelow300HzPercent": 0.6
     },
     {
       "file": "win-02.wav",
-      "seconds": 0.44,
+      "seconds": 0.28,
       "peakDbFS": -3.0,
-      "rmsDbFS": -29.73,
-      "leadingMsAtMinus45dB": 0.104,
+      "rmsDbFS": -27.34,
+      "attack35msRmsDbFS": -19.31,
+      "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 6297
+      "spectralCentroidHz": 7627,
+      "energyBelow300HzPercent": 0.22
     },
     {
       "file": "win-03.wav",
-      "seconds": 0.44,
+      "seconds": 0.28,
       "peakDbFS": -3.0,
-      "rmsDbFS": -28.18,
+      "rmsDbFS": -28.92,
+      "attack35msRmsDbFS": -21.12,
       "leadingMsAtMinus45dB": 0.083,
       "clippedSamples": 0,
-      "spectralCentroidHz": 5963
+      "spectralCentroidHz": 7472,
+      "energyBelow300HzPercent": 0.18
     }
   ],
   "auditionOrder": [

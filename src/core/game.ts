@@ -78,6 +78,16 @@ export class Game {
   stepFixed(): void {
     if (this.phase !== 'moving') return;
     this.tick++; this.shotTicks++;
+    // Planar Coulomb-style friction: in a top-down zero-gravity world there is no
+    // board collider beneath the pieces. Collider friction alone cannot supply it.
+    // Only the fixed simulation tick changes velocity; render rate has no effect.
+    for (const s of this.stones) {
+      if (!s.alive) continue;
+      const body = this.world.getRigidBody(s.bodyHandle), v = body.linvel();
+      const speed = Math.sqrt(v.x * v.x + v.y * v.y), next = Math.max(0, speed - RULES.slidingFriction * RULES.dt);
+      if (next <= RULES.restSpeed) body.setLinvel({ x: 0, y: 0 }, true);
+      else { const scale = next / speed; body.setLinvel({ x: v.x * scale, y: v.y * scale }, true); }
+    }
     const before = new Map(this.stones.filter(s => s.alive).map(s => [s.id, { ...this.world.getRigidBody(s.bodyHandle).linvel() }]));
     this.world.step(this.queue);
     this.queue.drainCollisionEvents((ha, hb, started) => {
@@ -172,7 +182,7 @@ export class Game {
   private createHinges(): void {
     for (const h of HINGES) {
       const c = this.world.createCollider(RAPIER.ColliderDesc.cuboid(h.halfWidth, h.halfHeight)
-        .setTranslation(h.x, h.y).setRestitution(.7).setFriction(.08)
+        .setTranslation(h.x, h.y).setRestitution(.55).setFriction(.12)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS));
       this.colliderToHinge.set(c.handle, h.id);
     }

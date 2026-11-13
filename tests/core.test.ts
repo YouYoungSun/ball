@@ -68,7 +68,7 @@ test('shot and turn transitions are fixed-tick events, and moving shots always f
 test('CCD detects a fast head-on impact; the target moves and a hit is emitted', () => {
   const g = new Game('ccd', [{ id: 0, side: 0, x: 3, y: 2.6 }, { id: 1, side: 1, x: 3.68, y: 2.6 }]);
   try {
-    assert.ok(g.shoot(makeShot(g.state(), 0, 11998, 0, 'fast')).accepted);
+    assert.ok(g.shoot(makeShot(g.state(), 0, maxImpulseFor() - 2, 0, 'fast')).accepted);
     let hit = false;
     for (let i = 0; i < 50; i++) { g.stepFixed(); hit ||= g.drainEvents().some(e => e.kind === 'hit'); }
     assert.ok(hit); assert.ok(g.state().stones.find(s => s.id === 1)!.x > 4);
@@ -78,7 +78,7 @@ test('CCD detects a fast head-on impact; the target moves and a hit is emitted',
 test('removing the last opponent stone resolves a win; out-of-bounds stones stop colliding', () => {
   const g = new Game('win', [{ id: 0, side: 0, x: 7.8, y: 2.6 }, { id: 1, side: 1, x: 8.5, y: 2.6 }]);
   try {
-    g.shoot(makeShot(g.state(), 0, 11998, 0, 'winner')); settle(g);
+    g.shoot(makeShot(g.state(), 0, maxImpulseFor() - 2, 0, 'winner')); settle(g);
     assert.equal(g.state().phase, 'finished'); assert.equal(g.state().winner, 0);
     const events = g.drainEvents(); assert.ok(events.some(e => e.kind === 'removed')); assert.ok(events.some(e => e.kind === 'match-ended'));
   } finally { g.free(); }
@@ -195,14 +195,14 @@ test('a soldier rebounds from a king and transfers much less speed than a king a
   function trial(kind: 'soldier' | 'king') {
     const g = new Game('mass-'+kind, [{id:0,side:0,kind,x:3,y:2.5},{id:1,side:1,kind:'king',x:4.1,y:2.5}]);
     try {
-      g.shoot(makeShot(g.state(),0,PIECES[kind].mass * 8000,0,'same-speed'));
+      g.shoot(makeShot(g.state(),0,PIECES[kind].mass * 6000,0,'same-speed'));
       let targetPeak = 0, rebound = 0;
       for(let i=0;i<100;i++) { g.stepFixed(); const s=g.state().stones; targetPeak=Math.max(targetPeak,s[1].vx); rebound=Math.min(rebound,s[0].vx); }
       return {targetPeak,rebound};
     } finally {g.free()}
   }
   const light=trial('soldier'), heavy=trial('king');
-  console.log('mass response at 8 units/s:',{soldierIntoKing:light,kingIntoKing:heavy});
+  console.log('mass response at 6 units/s:',{soldierIntoKing:light,kingIntoKing:heavy});
   assert.ok(light.rebound < -1);
   assert.ok(light.targetPeak < heavy.targetPeak * .6);
 });
@@ -219,7 +219,7 @@ test('a raised side hinge blocks and rebounds a piece while the central seam sta
   function shotAt(x:number) {
     const g=new Game('hinge-'+x,[{id:0,side:0,kind:'soldier',x,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);
     try {
-      g.shoot(makeShot(g.state(),0,0,6000,'hinge-shot'));
+      g.shoot(makeShot(g.state(),0,0,maxImpulseFor('soldier')-2,'hinge-shot'));
       let hingeHit=false,minV=0,maxY=0;
       for(let i=0;i<90;i++){g.stepFixed();hingeHit ||= g.drainEvents().some(e=>e.kind==='hinge-hit');const s=g.state().stones[0];minV=Math.min(minV,s.vy);maxY=Math.max(maxY,s.y)}
       return {hingeHit,minV,maxY};
@@ -233,7 +233,7 @@ test('a raised side hinge blocks and rebounds a piece while the central seam sta
 test('hinge geometry and collision events survive a moving checkpoint restore', () => {
   const a=new Game('hinge-resume',[{id:0,side:0,kind:'soldier',x:.4,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);let b:Game|undefined;
   try {
-    a.shoot(makeShot(a.state(),0,0,6000,'hinge-resume'));for(let i=0;i<3;i++)a.stepFixed();a.drainEvents();
+    a.shoot(makeShot(a.state(),0,0,maxImpulseFor('soldier')-2,'hinge-resume'));for(let i=0;i<3;i++)a.stepFixed();a.drainEvents();
     b=Game.restore(a.snapshot()); let ah=false,bh=false;
     for(let i=0;i<120;i++){a.stepFixed();b.stepFixed();ah ||= a.drainEvents().some(e=>e.kind==='hinge-hit');bh ||= b.drainEvents().some(e=>e.kind==='hinge-hit')}
     assert.ok(ah&&bh);assert.deepEqual(a.state(),b.state());assert.equal(hash(a),hash(b));
@@ -255,4 +255,69 @@ test('different-sized pieces emit a radius-weighted contact point, not the cente
     }
     assert.ok(found);
   } finally {g.free()}
+});
+
+test('opening central soldier shots cannot chain the opposing central soldier into a king knockout', () => {
+  const reports: Array<{power:number;duration:number;kingTravel:number;kingAlive:boolean;enemySoldierHit:boolean;kingHit:boolean}> = [];
+  for (const power of [.4, .65, .8, 1]) {
+    const g = new Game(`central-chain-${power}`);
+    try {
+      const initial = g.state();
+      const striker = initial.stones.find(s => s.side === 0 && s.kind === 'soldier' && s.x === 4.5)!;
+      const central = initial.stones.find(s => s.side === 1 && s.kind === 'soldier' && s.x === 4.5)!;
+      const king = initial.stones.find(s => s.side === 1 && s.kind === 'king')!;
+      assert.ok(g.shoot(makeShot(initial, striker.id, 0, -Math.floor((maxImpulseFor(striker.kind) - 2) * power), 'center')).accepted);
+      let enemySoldierHit = false, kingHit = false;
+      while (g.isMoving) {
+        g.stepFixed();
+        for (const event of g.drainEvents()) if (event.kind === 'hit') {
+          enemySoldierHit ||= (event.a === striker.id && event.b === central.id) || (event.b === striker.id && event.a === central.id);
+          kingHit ||= event.a === king.id || event.b === king.id;
+        }
+      }
+      const final = g.state(), target = final.stones.find(s => s.id === king.id)!;
+      assert.equal(target.alive, true, `king must survive opening power ${power}`);
+      assert.ok(target.y >= 1.0, `opening cannot push a king to a precarious edge at power ${power}`);
+      if (power === 1) {
+        assert.ok(enemySoldierHit, 'maximum shot must still reach the enemy soldier line');
+        assert.ok(kingHit, 'the chain is physically simulated rather than disabled');
+        assert.ok(target.y < king.y, 'the king can move; it is not immune');
+        assert.ok(final.tick / RULES.hz < 2, 'the opening chain must not retain a long skating tail');
+      }
+      reports.push({ power, duration: final.tick / RULES.hz, kingTravel: king.y - target.y, kingAlive: target.alive, enemySoldierHit, kingHit });
+    } finally { g.free(); }
+  }
+  console.log('opening chain regression:', reports);
+});
+
+test('dry board friction stops a full-speed free slide within a bounded distance and time', () => {
+  const g = new Game('dry-slide', [{ id: 0, side: 0, kind: 'soldier', x: .5, y: 2 }, { id: 1, side: 1, kind: 'king', x: 7, y: 8 }]);
+  try {
+    assert.ok(g.shoot(makeShot(g.state(), 0, maxImpulseFor('soldier') - 2, 0, 'slide')).accepted);
+    settle(g); const state = g.state(), piece = state.stones[0];
+    assert.ok(piece.alive, 'the shot stops before skating all the way off the board');
+    assert.ok(piece.x - .5 > 6 && piece.x - .5 < 8, 'a maximum flick retains range without an unlimited tail');
+    assert.ok(state.tick / RULES.hz < 2.5);
+    assert.equal(piece.vx, 0); assert.equal(piece.vy, 0);
+    console.log('dry free slide:', { travel: piece.x - .5, seconds: state.tick / RULES.hz });
+  } finally { g.free(); }
+});
+
+test('low-speed pieces come to an exact stop rather than drifting indefinitely', () => {
+  const g = new Game('slow-stop', [{ id: 0, side: 0, kind: 'soldier', x: 3, y: 2 }, { id: 1, side: 1, kind: 'king', x: 7, y: 8 }]);
+  try {
+    assert.ok(g.shoot(makeShot(g.state(), 0, 390, 0, 'slow')).accepted);
+    settle(g); const state = g.state(), piece = state.stones[0];
+    assert.ok(state.tick / RULES.hz < .5); assert.ok(piece.x - 3 < .08);
+    assert.equal(piece.vx, 0); assert.equal(piece.vy, 0);
+  } finally { g.free(); }
+});
+
+test('a king near the edge can still be knocked out by a direct soldier hit', () => {
+  const g = new Game('edge-king', [{ id: 0, side: 0, kind: 'soldier', x: 7.5, y: 2.5 }, { id: 1, side: 1, kind: 'king', x: 8.75, y: 2.5 }]);
+  try {
+    assert.ok(g.shoot(makeShot(g.state(), 0, maxImpulseFor('soldier') - 2, 0, 'edge')).accepted);
+    settle(g); const state = g.state();
+    assert.equal(state.stones[1].alive, false); assert.equal(state.winner, 0);
+  } finally { g.free(); }
 });

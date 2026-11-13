@@ -1,15 +1,23 @@
 {
   "name": "after-school-alkkagi",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24.0.0" },
+  "engines": {
+    "node": ">=24.0.0"
+  },
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "node --test tests/*.test.ts"
   },
-  "dependencies": { "@dimforge/rapier2d-compat": "0.21.0" },
-  "devDependencies": { "typescript": "5.9.3", "vite": "8.3.8", "@types/node": "24.10.0" }
+  "dependencies": {
+    "@dimforge/rapier2d-compat": "0.21.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "vite": "8.3.8",
+    "@types/node": "24.10.0"
+  }
 }

@@ -38,13 +38,13 @@ function send(e: GameEvent, kinds: ['soldier' | 'horse' | 'king', 'soldier' | 'h
   now += .2;
   player.event(e, { stones: [{ id: 0, kind: kinds[0] }, { id: 1, kind: kinds[1] }] } as MatchState);
 }
-send({ kind: 'hit', tick: 1, a: 0, b: 1, x: 0, y: 0, strength: .6 }); assert.equal(started.at(-1)!.duration, .105);
-send({ kind: 'hit', tick: 2, a: 0, b: 1, x: 0, y: 0, strength: .6 }, ['horse', 'soldier']); assert.equal(started.at(-1)!.duration, .16);
-send({ kind: 'hit', tick: 3, a: 0, b: 1, x: 0, y: 0, strength: .6 }, ['king', 'soldier']); assert.equal(started.at(-1)!.duration, .225);
-send({ kind: 'hinge-hit', tick: 4, stoneId: 0, hingeId: 'left', x: 0, y: 0, strength: .6 }); assert.equal(started.at(-1)!.duration, .255);
-send({ kind: 'shot', tick: 5, stoneId: 0 }); assert.equal(started.at(-1)!.duration, .115);
-send({ kind: 'removed', tick: 6, stoneId: 0, side: 0, x: 0, y: 0, vx: 0, vy: 0 }); assert.equal(started.at(-1)!.duration, .52);
-send({ kind: 'match-ended', tick: 7, winner: 0 }); assert.equal(started.at(-1)!.duration, .44);
+send({ kind: 'hit', tick: 1, a: 0, b: 1, x: 0, y: 0, strength: .6 }); assert.equal(started.at(-1)!.duration, .075);
+send({ kind: 'hit', tick: 2, a: 0, b: 1, x: 0, y: 0, strength: .6 }, ['horse', 'soldier']); assert.equal(started.at(-1)!.duration, .11);
+send({ kind: 'hit', tick: 3, a: 0, b: 1, x: 0, y: 0, strength: .6 }, ['king', 'soldier']); assert.equal(started.at(-1)!.duration, .145);
+send({ kind: 'hinge-hit', tick: 4, stoneId: 0, hingeId: 'left', x: 0, y: 0, strength: .6 }); assert.equal(started.at(-1)!.duration, .16);
+send({ kind: 'shot', tick: 5, stoneId: 0 }); assert.equal(started.at(-1)!.duration, .08);
+send({ kind: 'removed', tick: 6, stoneId: 0, side: 0, x: 0, y: 0, vx: 0, vy: 0 }); assert.equal(started.at(-1)!.duration, .36);
+send({ kind: 'match-ended', tick: 7, winner: 0 }); assert.equal(started.at(-1)!.duration, .28);
 send({ kind: 'hinge-hit', tick: 8, stoneId: 0, hingeId: 'left', x: 0, y: 0, strength: .6 });
 assert.ok(started.some(s => s.stopped));
 assert.ok(started.filter(s => !s.stopped).length <= 7);

@@ -24,7 +24,7 @@ export class AudioPlayer {
       this.bus = this.context.createGain(); this.bus.gain.value = .8;
       const compressor = this.context.createDynamicsCompressor();
       compressor.threshold.value = -12; compressor.knee.value = 6; compressor.ratio.value = 7;
-      compressor.attack.value = .002; compressor.release.value = .09;
+      compressor.attack.value = .002; compressor.release.value = .065;
       this.bus.connect(compressor).connect(this.context.destination);
     }
     await this.context.resume();
@@ -89,8 +89,8 @@ export class AudioPlayer {
     }
     const source = ctx.createBufferSource(), gain = ctx.createGain();
     const index = this.cursor++;
-    source.buffer = samples[index % samples.length]; source.playbackRate.value = .985 + index % 4 * .01;
-    const mix: Record<SoundName, number> = { flick: .15, hitSoft: .32, hitMedium: .38, hitHard: .44, hinge: .32, fall: .35, win: .23 };
+    source.buffer = samples[index % samples.length]; source.playbackRate.value = .995 + index % 4 * .01;
+    const mix: Record<SoundName, number> = { flick: .15, hitSoft: .36, hitMedium: .39, hitHard: .40, hinge: .31, fall: .38, win: .22 };
     gain.gain.value = mix[name] * (.28 + Math.max(0, Math.min(1, strength)) * .72);
     source.connect(gain).connect(this.bus);
     const voice = { source, priority, started: now }; this.voices.add(voice);
