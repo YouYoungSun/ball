@@ -1,5 +1,5 @@
 import RAPIER from '@dimforge/rapier2d-compat';
-import { INITIAL_STONES, RULES } from './rules.ts';
+import { HINGES, INITIAL_STONES, RULES, maxImpulseFor, pieceSpec } from './rules.ts';
 import type { GameEvent, MatchSnapshot, MatchState, Phase, ShotCommand, ShotResult, Side, StoneSeed } from './types.ts';
 
 let ready: Promise<void> | undefined;
@@ -12,6 +12,7 @@ export class Game {
   private queue = new RAPIER.EventQueue(true);
   private stones: Stone[] = [];
   private colliderToId = new Map<number, number>();
+  private colliderToHinge = new Map<number, string>();
   private events: GameEvent[] = [];
   private seenShots = new Set<string>();
   private commands: ShotCommand[] = [];
@@ -29,12 +30,14 @@ export class Game {
     this.world = new RAPIER.World({ x: 0, y: 0 });
     this.world.timestep = RULES.dt;
     this.world.maxCcdSubsteps = 4;
+    this.createHinges();
     for (const seed of seeds) {
+      const spec = pieceSpec(seed.kind);
       const desc = RAPIER.RigidBodyDesc.dynamic().setTranslation(seed.x, seed.y)
         .setLinearDamping(RULES.damping).setAngularDamping(2).setCanSleep(false).setCcdEnabled(true);
       const body = this.world.createRigidBody(desc);
-      const collider = this.world.createCollider(RAPIER.ColliderDesc.ball(RULES.radius)
-        .setMass(1).setRestitution(RULES.restitution).setFriction(0)
+      const collider = this.world.createCollider(RAPIER.ColliderDesc.ball(spec.radius)
+        .setMass(spec.mass).setRestitution(RULES.restitution).setFriction(0)
         .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS), body);
       this.stones.push({ ...seed, alive: true, bodyHandle: body.handle });
       this.colliderToId.set(collider.handle, seed.id);
@@ -46,7 +49,7 @@ export class Game {
       phase: this.phase, winner: this.winner,
       stones: this.stones.map(s => {
         const b = this.world.getRigidBody(s.bodyHandle), p = b.translation(), v = b.linvel();
-        return { id: s.id, side: s.side, alive: s.alive, x: p.x, y: p.y, vx: v.x, vy: v.y };
+        return { id: s.id, side: s.side, kind: s.kind, alive: s.alive, x: p.x, y: p.y, vx: v.x, vy: v.y };
       }) };
   }
   get isMoving(): boolean { return this.phase === 'moving'; }
@@ -62,7 +65,7 @@ export class Game {
     if (!stone) return reject('내 돌을 선택하세요.');
     if (!Number.isSafeInteger(c.impulseX) || !Number.isSafeInteger(c.impulseY)) return reject('잘못된 발사 힘입니다.');
     const sizeSquared = c.impulseX ** 2 + c.impulseY ** 2;
-    if (sizeSquared < RULES.minImpulse ** 2 || sizeSquared > RULES.maxImpulse ** 2) return reject('발사 힘이 허용 범위를 벗어났습니다.');
+    if (sizeSquared < RULES.minImpulse ** 2 || sizeSquared > maxImpulseFor(stone.kind) ** 2) return reject('발사 힘이 허용 범위를 벗어났습니다.');
     this.seenShots.add(c.shotId);
     this.commands.push({ ...c });
     const b = this.world.getRigidBody(stone.bodyHandle);
@@ -81,13 +84,27 @@ export class Game {
       if (!started) return;
       const ia = this.colliderToId.get(ha), ib = this.colliderToId.get(hb);
       const a = this.stones.find(s => s.id === ia), b = this.stones.find(s => s.id === ib);
+      const hingeId = this.colliderToHinge.get(ha) ?? this.colliderToHinge.get(hb);
+      if (hingeId) {
+        const stone = a ?? b;
+        if (!stone?.alive) return;
+        const body = this.world.getRigidBody(stone.bodyHandle), p = body.translation(), v = before.get(stone.id)!;
+        const speed = Math.hypot(v.x, v.y);
+        const hinge = HINGES.find(h => h.id === hingeId)!;
+        const contactX = Math.max(hinge.x - hinge.halfWidth, Math.min(hinge.x + hinge.halfWidth, p.x));
+        const contactY = Math.max(hinge.y - hinge.halfHeight, Math.min(hinge.y + hinge.halfHeight, p.y));
+        if (speed > .35) this.events.push({ kind: 'hinge-hit', tick: this.tick, x: contactX, y: contactY,
+          strength: Math.min(1, speed * Math.sqrt(pieceSpec(stone.kind).mass) / 12), stoneId: stone.id, hingeId });
+        return;
+      }
       if (!a?.alive || !b?.alive) return;
       const ap = this.world.getRigidBody(a.bodyHandle).translation(), bp = this.world.getRigidBody(b.bodyHandle).translation();
       const av = before.get(a.id)!, bv = before.get(b.id)!;
       const dx = bp.x - ap.x, dy = bp.y - ap.y, length = Math.hypot(dx, dy) || 1;
       const speed = Math.abs(((av.x - bv.x) * dx + (av.y - bv.y) * dy) / length);
-      if (speed > .35) this.events.push({ kind: 'hit', tick: this.tick, x: (ap.x + bp.x) / 2,
-        y: (ap.y + bp.y) / 2, strength: Math.min(1, speed / 10), a: a.id, b: b.id });
+      const ra = pieceSpec(a.kind).radius, rb = pieceSpec(b.kind).radius;
+      if (speed > .35) this.events.push({ kind: 'hit', tick: this.tick, x: (ap.x * rb + bp.x * ra) / (ra + rb),
+        y: (ap.y * rb + bp.y * ra) / (ra + rb), strength: Math.min(1, speed * Math.sqrt(Math.min(pieceSpec(a.kind).mass, pieceSpec(b.kind).mass)) / 10), a: a.id, b: b.id });
     });
     let quiet = true;
     for (const s of this.stones) {
@@ -128,12 +145,19 @@ export class Game {
   static restore(snapshot: MatchSnapshot): Game {
     if (!snapshot || snapshot.format !== 1 || snapshot.rulesVersion !== RULES.version || snapshot.engine !== RULES.engine) throw new Error('호환되지 않는 스냅샷입니다.');
     if (!(snapshot.physics instanceof Uint8Array) || snapshot.physics.byteLength > 1_000_000 ||
-      !Array.isArray(snapshot.stones) || snapshot.stones.length > 6 ||
+      !Array.isArray(snapshot.stones) || snapshot.stones.length > 32 ||
       !Array.isArray(snapshot.seenShots) || snapshot.seenShots.length > RULES.maxTurns ||
       !Array.isArray(snapshot.commands) || snapshot.commands.length > RULES.maxTurns) throw new Error('잘못된 스냅샷 형식입니다.');
     const g = new Game(snapshot.matchId, []);
     try {
     const world = RAPIER.World.restoreSnapshot(snapshot.physics); g.world.free(); g.world = world;
+    g.colliderToHinge.clear();
+    g.world.forEachCollider(c => {
+      const p = c.translation(), h = HINGES.find(h => Math.abs(h.x - p.x) < .001 && Math.abs(h.y - p.y) < .001);
+      // Rapier's restored standalone collider parent wrapper is not a reliable discriminator.
+      // Fixed cuboid hinges are uniquely identified by their shape and immutable placement.
+      if (h && c.shapeType() === RAPIER.ShapeType.Cuboid) g.colliderToHinge.set(c.handle, h.id);
+    });
     g.tick = snapshot.tick; g.turn = snapshot.turn; g.side = snapshot.side; g.phase = snapshot.phase;
     g.winner = snapshot.winner; g.shotTicks = snapshot.shotTicks; g.quietTicks = snapshot.quietTicks;
     g.seenShots = new Set(snapshot.seenShots); g.commands = snapshot.commands.map(c => ({ ...c })); g.stones = snapshot.stones.map(s => ({ ...s }));
@@ -145,6 +169,14 @@ export class Game {
     } catch (error) { g.free(); throw error; }
   }
   free(): void { this.queue.free(); this.world.free(); }
+  private createHinges(): void {
+    for (const h of HINGES) {
+      const c = this.world.createCollider(RAPIER.ColliderDesc.cuboid(h.halfWidth, h.halfHeight)
+        .setTranslation(h.x, h.y).setRestitution(.7).setFriction(.08)
+        .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS));
+      this.colliderToHinge.set(c.handle, h.id);
+    }
+  }
 }
 
 export function makeShot(state: MatchState, stoneId: number, x: number, y: number, shotId: string): ShotCommand {

@@ -2,14 +2,14 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { Game, initPhysics, makeShot } from '../src/core/game.ts';
-import { RULES } from '../src/core/rules.ts';
+import { RULES, HINGES, INITIAL_STONES, PIECES, maxImpulseFor } from '../src/core/rules.ts';
 import { HostAuthority, LoopbackTransport } from '../src/net/transport.ts';
 import { chooseShot } from '../src/players/ai.ts';
 
 before(async () => { await initPhysics(); });
 const hash = (g: Game) => createHash('sha256').update(g.snapshot().physics).digest('hex');
 function settle(g: Game) { let ticks = 0; while (g.isMoving && ticks++ <= RULES.maxShotTicks) g.stepFixed(); assert.ok(ticks <= RULES.maxShotTicks + 1); }
-function defaultShot(g: Game, id = 'shot-1') { return makeShot(g.state(), 1, 11998, 0, id); }
+function defaultShot(g: Game, id = 'shot-1') { const s = g.state().stones.find(s => s.id === 11)!; return makeShot(g.state(), s.id, 0, -maxImpulseFor(s.kind) + 2, id); }
 
 test('same commands give identical physics and state on two independent cores', () => {
   const a = new Game('same'), b = new Game('same');
@@ -43,9 +43,9 @@ test('old turns, opponent stones, invalid forces, duplicates, and shots during m
   const g = new Game();
   try {
     const c = defaultShot(g);
-    for (const bad of [{ ...c, turn: 0 }, { ...c, stoneId: 3 }, { ...c, side: 1 as const },
+    for (const bad of [{ ...c, turn: 0 }, { ...c, stoneId: 16 }, { ...c, side: 1 as const },
       { ...c, impulseX: NaN }, { ...c, impulseX: Infinity }, { ...c, impulseY: .5 },
-      { ...c, impulseX: 99999999 }, { ...c, impulseX: 0 }, { ...c, matchId: 'old' }, { ...c, rulesVersion: 'old' }]) {
+      { ...c, impulseX: 99999999 }, { ...c, impulseX: 0, impulseY: 0 }, { ...c, matchId: 'old' }, { ...c, rulesVersion: 'old' }]) {
       assert.equal(g.shoot(bad).accepted, false); assert.equal(g.state().phase, 'aiming');
     }
     assert.equal(g.shoot(c).accepted, true);
@@ -66,7 +66,7 @@ test('shot and turn transitions are fixed-tick events, and moving shots always f
 });
 
 test('CCD detects a fast head-on impact; the target moves and a hit is emitted', () => {
-  const g = new Game('ccd', [{ id: 0, side: 0, x: 3, y: 2.6 }, { id: 1, side: 1, x: 3.58, y: 2.6 }]);
+  const g = new Game('ccd', [{ id: 0, side: 0, x: 3, y: 2.6 }, { id: 1, side: 1, x: 3.68, y: 2.6 }]);
   try {
     assert.ok(g.shoot(makeShot(g.state(), 0, 11998, 0, 'fast')).accepted);
     let hit = false;
@@ -76,7 +76,7 @@ test('CCD detects a fast head-on impact; the target moves and a hit is emitted',
 });
 
 test('removing the last opponent stone resolves a win; out-of-bounds stones stop colliding', () => {
-  const g = new Game('win', [{ id: 0, side: 0, x: 6.8, y: 2.6 }, { id: 1, side: 1, x: 7.5, y: 2.6 }]);
+  const g = new Game('win', [{ id: 0, side: 0, x: 7.8, y: 2.6 }, { id: 1, side: 1, x: 8.5, y: 2.6 }]);
   try {
     g.shoot(makeShot(g.state(), 0, 11998, 0, 'winner')); settle(g);
     assert.equal(g.state().phase, 'finished'); assert.equal(g.state().winner, 0);
@@ -86,7 +86,7 @@ test('removing the last opponent stone resolves a win; out-of-bounds stones stop
 
 test('simultaneous last-stone loss is an explicit draw', () => {
   // A legal checkpoint can contain an outward-moving pair at a shot boundary.
-  const g = new Game('draw', [{ id: 0, side: 0, x: -.1, y: 2 }, { id: 1, side: 1, x: 8.1, y: 2 }]);
+  const g = new Game('draw', [{ id: 0, side: 0, x: -.1, y: 2 }, { id: 1, side: 1, x: 9.1, y: 2 }]);
   try { g.shoot(makeShot(g.state(), 0, -250, 0, 'draw')); settle(g); assert.equal(g.state().winner, 'draw'); }
   finally { g.free(); }
 });
@@ -173,4 +173,86 @@ test('accepted shot logs replay several turns to the same final state', () => {
     for (const c of game.shotLog()) { assert.ok(replay.shoot(c).accepted); settle(replay); }
     assert.deepEqual(game.state(), replay.state()); assert.equal(hash(game), hash(replay));
   } finally { game.free(); replay.free(); }
+});
+
+test('janggi has 16 pieces per army and different physical radii and masses', () => {
+  const g = new Game('janggi-layout'); let restored: Game | undefined;
+  try {
+    const state = g.state();
+    assert.equal(state.stones.length, 32);
+    assert.equal(state.stones.filter(s => s.side === 0).length, 16);
+    assert.equal(state.stones.filter(s => s.side === 1).length, 16);
+    assert.ok(state.stones.filter(s => s.side === 0).every(s => s.y > 5));
+    assert.ok(state.stones.filter(s => s.side === 1).every(s => s.y < 5));
+    assert.ok(PIECES.king.radius > PIECES.chariot.radius && PIECES.chariot.radius > PIECES.soldier.radius);
+    assert.ok(PIECES.king.mass > PIECES.chariot.mass && PIECES.chariot.mass > PIECES.soldier.mass);
+    restored = Game.restore(g.snapshot()); assert.deepEqual(restored.state(), state); assert.equal(hash(restored), hash(g));
+    assert.equal(INITIAL_STONES.length, 32);
+  } finally { g.free(); restored?.free(); }
+});
+
+test('a soldier rebounds from a king and transfers much less speed than a king at the same launch speed', () => {
+  function trial(kind: 'soldier' | 'king') {
+    const g = new Game('mass-'+kind, [{id:0,side:0,kind,x:3,y:2.5},{id:1,side:1,kind:'king',x:4.1,y:2.5}]);
+    try {
+      g.shoot(makeShot(g.state(),0,PIECES[kind].mass * 8000,0,'same-speed'));
+      let targetPeak = 0, rebound = 0;
+      for(let i=0;i<100;i++) { g.stepFixed(); const s=g.state().stones; targetPeak=Math.max(targetPeak,s[1].vx); rebound=Math.min(rebound,s[0].vx); }
+      return {targetPeak,rebound};
+    } finally {g.free()}
+  }
+  const light=trial('soldier'), heavy=trial('king');
+  console.log('mass response at 8 units/s:',{soldierIntoKing:light,kingIntoKing:heavy});
+  assert.ok(light.rebound < -1);
+  assert.ok(light.targetPeak < heavy.targetPeak * .6);
+});
+
+test('the authority validates each piece launch impulse limit', () => {
+  const g=new Game('piece-limit',[{id:0,side:0,kind:'soldier',x:3,y:2},{id:1,side:1,kind:'king',x:6,y:2}]);
+  try {
+    assert.equal(g.shoot(makeShot(g.state(),0,maxImpulseFor('king')-2,0,'too-heavy')).accepted,false);
+    assert.equal(g.shoot(makeShot(g.state(),0,maxImpulseFor('soldier')-2,0,'legal-small')).accepted,true);
+  } finally {g.free()}
+});
+
+test('a raised side hinge blocks and rebounds a piece while the central seam stays open', () => {
+  function shotAt(x:number) {
+    const g=new Game('hinge-'+x,[{id:0,side:0,kind:'soldier',x,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);
+    try {
+      g.shoot(makeShot(g.state(),0,0,6000,'hinge-shot'));
+      let hingeHit=false,minV=0,maxY=0;
+      for(let i=0;i<90;i++){g.stepFixed();hingeHit ||= g.drainEvents().some(e=>e.kind==='hinge-hit');const s=g.state().stones[0];minV=Math.min(minV,s.vy);maxY=Math.max(maxY,s.y)}
+      return {hingeHit,minV,maxY};
+    } finally {g.free()}
+  }
+  const blocked=shotAt(HINGES[0].x), open=shotAt(4.5);
+  assert.ok(blocked.hingeHit); assert.ok(blocked.minV < -1); assert.ok(blocked.maxY < 5);
+  assert.equal(open.hingeHit,false); assert.ok(open.maxY > 6);
+});
+
+test('hinge geometry and collision events survive a moving checkpoint restore', () => {
+  const a=new Game('hinge-resume',[{id:0,side:0,kind:'soldier',x:.4,y:4.1},{id:1,side:1,kind:'soldier',x:7,y:8}]);let b:Game|undefined;
+  try {
+    a.shoot(makeShot(a.state(),0,0,6000,'hinge-resume'));for(let i=0;i<3;i++)a.stepFixed();a.drainEvents();
+    b=Game.restore(a.snapshot()); let ah=false,bh=false;
+    for(let i=0;i<120;i++){a.stepFixed();b.stepFixed();ah ||= a.drainEvents().some(e=>e.kind==='hinge-hit');bh ||= b.drainEvents().some(e=>e.kind==='hinge-hit')}
+    assert.ok(ah&&bh);assert.deepEqual(a.state(),b.state());assert.equal(hash(a),hash(b));
+  } finally {a.free();b?.free()}
+});
+
+test('different-sized pieces emit a radius-weighted contact point, not the center midpoint', () => {
+  const g=new Game('contact-point',[{id:0,side:0,kind:'soldier',x:3,y:2.5},{id:1,side:1,kind:'king',x:4.1,y:2.5}]);
+  try {
+    g.shoot(makeShot(g.state(),0,5200,0,'contact'));
+    let found=false;
+    for(let i=0;i<80;i++){
+      g.stepFixed();const hit=g.drainEvents().find(e=>e.kind==='hit');
+      if(hit?.kind==='hit'){
+        const [a,b]=g.state().stones;
+        const expected=(a.x*PIECES.king.radius+b.x*PIECES.soldier.radius)/(PIECES.king.radius+PIECES.soldier.radius);
+        assert.ok(Math.abs(hit.x-expected)<1e-5);assert.ok(Math.abs(hit.x-(a.x+b.x)/2)>.05);found=true;break;
+      }
+    }
+    assert.ok(found);
+  } finally {g.free()}
 });

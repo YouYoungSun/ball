@@ -1,4 +1,40 @@
 {
   "version": 1,
-  "clips": { "flick": [], "hitSoft": [], "hitHard": [], "fall": [], "win": [] }
+  "clips": {
+    "flick": [
+      "/audio/flick-01.wav",
+      "/audio/flick-02.wav",
+      "/audio/flick-03.wav"
+    ],
+    "hitSoft": [
+      "/audio/hitSoft-01.wav",
+      "/audio/hitSoft-02.wav",
+      "/audio/hitSoft-03.wav"
+    ],
+    "hitMedium": [
+      "/audio/hitMedium-01.wav",
+      "/audio/hitMedium-02.wav",
+      "/audio/hitMedium-03.wav"
+    ],
+    "hitHard": [
+      "/audio/hitHard-01.wav",
+      "/audio/hitHard-02.wav",
+      "/audio/hitHard-03.wav"
+    ],
+    "hinge": [
+      "/audio/hinge-01.wav",
+      "/audio/hinge-02.wav",
+      "/audio/hinge-03.wav"
+    ],
+    "fall": [
+      "/audio/fall-01.wav",
+      "/audio/fall-02.wav",
+      "/audio/fall-03.wav"
+    ],
+    "win": [
+      "/audio/win-01.wav",
+      "/audio/win-02.wav",
+      "/audio/win-03.wav"
+    ]
+  }
 }
